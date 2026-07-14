@@ -119,7 +119,12 @@ export default function Home() {
           const converted = feature(topology, object as GeometryCollection<MapProperties>);
           return converted.type === "FeatureCollection" ? converted.features : [converted];
         }) as MapFeature[];
-        setDistricts(features);
+        const latestPlanByDistrict = new Map<string, MapFeature>();
+        features.forEach((mapFeature) => {
+          const key = `${mapFeature.properties.statename}:${mapFeature.properties.district ?? 0}`;
+          latestPlanByDistrict.set(key, mapFeature);
+        });
+        setDistricts([...latestPlanByDistrict.values()]);
         setMapLoading(false);
       });
     return () => { cancelled = true; };
