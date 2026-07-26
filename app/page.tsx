@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { geoAlbersUsa, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
@@ -109,7 +109,18 @@ export default function Home() {
   const [zoom, setZoom] = useState<ZoomState>({ x: 0, y: 0, k: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
-  const dragRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
+  const zoomLayerRef = useRef<SVGGElement>(null);
+  const zoomRef = useRef<ZoomState>({ x: 0, y: 0, k: 1 });
+  const dragRef = useRef<{
+    clientX: number;
+    clientY: number;
+    x: number;
+    y: number;
+    scaleX: number;
+    scaleY: number;
+  } | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const wheelCommitRef = useRef<number | null>(null);
   const congress = congressFor(date);
 
   useEffect(() => {
@@ -150,9 +161,20 @@ export default function Home() {
   }, [chamber, congress]);
 
   useEffect(() => {
-    setZoom({ x: 0, y: 0, k: 1 });
+    const reset = { x: 0, y: 0, k: 1 };
+    zoomRef.current = reset;
+    if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+    animationFrameRef.current = null;
+    if (wheelCommitRef.current !== null) window.clearTimeout(wheelCommitRef.current);
+    wheelCommitRef.current = null;
+    setZoom(reset);
     setTooltip(null);
   }, [chamber, congress]);
+
+  useEffect(() => () => {
+    if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
+    if (wheelCommitRef.current !== null) window.clearTimeout(wheelCommitRef.current);
+  }, []);
 
   const activeMembers = useMemo(
     () => members.filter((member) => member.t === chamber && member.a <= date && member.z > date),
@@ -202,39 +224,83 @@ export default function Home() {
     const collection: FeatureCollection<Geometry, GeoJsonProperties> = { type: "FeatureCollection", features: geographicFrame };
     return geoAlbersUsa().fitExtent([[22, 18], [978, 602]], collection);
   }, [activePolities, visibleFeatures]);
-  const path = projection ? geoPath(projection) : null;
+  const path = useMemo(() => projection ? geoPath(projection) : null, [projection]);
 
-  const memberForDistrict = (mapFeature: MapFeature) => {
+  const numberedDistrictStates = useMemo(
+    () => new Set(
+      visibleDistricts
+        .filter((mapFeature) => (mapFeature.properties.district ?? 0) > 0)
+        .map((mapFeature) => mapFeature.properties.statename),
+    ),
+    [visibleDistricts],
+  );
+
+  const memberForDistrict = useCallback((mapFeature: MapFeature) => {
     const state = STATE_ABBR[mapFeature.properties.statename ?? ""];
     const district = mapFeature.properties.district ?? 0;
-    const hasNumberedDistricts = visibleDistricts.some(
-      (candidate) => candidate.properties.statename === mapFeature.properties.statename
-        && (candidate.properties.district ?? 0) > 0,
-    );
+    const hasNumberedDistricts = numberedDistrictStates.has(mapFeature.properties.statename);
     return houseMembersForDistrict(activeMembers, state, district, hasNumberedDistricts);
-  };
+  }, [activeMembers, numberedDistrictStates]);
 
-  const senatorsForState = (mapFeature: MapFeature) => {
+  const senatorsForState = useCallback((mapFeature: MapFeature) => {
     const state = STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""];
     return activeMembers.filter((member) => member.s === state);
-  };
+  }, [activeMembers]);
 
-  const fillFor = (mapFeature: MapFeature) => {
+  const fillFor = useCallback((mapFeature: MapFeature) => {
     if (chamber === "rep") return colorFor(memberForDistrict(mapFeature)[0]?.p);
     const senators = senatorsForState(mapFeature);
     if (!senators.length) return "#d6d0c5";
     return senators.length > 1 && senators[0].p !== senators[1].p
       ? `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`
       : colorFor(senators[0].p);
-  };
+  }, [chamber, memberForDistrict, senatorsForState]);
 
-  const zoomBy = (factor: number, point = { x: 500, y: 310 }) => {
-    setZoom((current) => {
-      const nextK = Math.max(1, Math.min(16, current.k * factor));
-      const ratio = nextK / current.k;
-      return { k: nextK, x: point.x - (point.x - current.x) * ratio, y: point.y - (point.y - current.y) * ratio };
+  const backgroundPathElements = useMemo(
+    () => path ? activePolities.map((polity, index) => (
+      <path
+        key={`${polity.properties.NAME}-${polity.properties.START_N}-${index}`}
+        d={path(polity) ?? undefined}
+        className={polity.properties.TERR_TYPE === "State" ? "historical-state" : "historical-territory"}
+      />
+    )) : [],
+    [activePolities, path],
+  );
+
+  const mapPathElements = useMemo(
+    () => path ? visibleFeatures.map((mapFeature, index) => (
+      <path
+        key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
+        d={path(mapFeature) ?? undefined}
+        fill={fillFor(mapFeature)}
+        onMouseMove={(event) => {
+          if (dragRef.current) return;
+          const rect = mapRef.current?.getBoundingClientRect();
+          if (rect) setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, feature: mapFeature });
+        }}
+      />
+    )) : [],
+    [fillFor, path, visibleFeatures],
+  );
+
+  const applyZoom = useCallback((next: ZoomState) => {
+    zoomRef.current = next;
+    if (animationFrameRef.current !== null) return;
+    animationFrameRef.current = requestAnimationFrame(() => {
+      const current = zoomRef.current;
+      zoomLayerRef.current?.setAttribute("transform", `translate(${current.x} ${current.y}) scale(${current.k})`);
+      animationFrameRef.current = null;
     });
-  };
+  }, []);
+
+  const zoomBy = useCallback((factor: number, point = { x: 500, y: 310 }, commit = true) => {
+    const current = zoomRef.current;
+    const nextK = Math.max(1, Math.min(16, current.k * factor));
+    const ratio = nextK / current.k;
+    const next = { k: nextK, x: point.x - (point.x - current.x) * ratio, y: point.y - (point.y - current.y) * ratio };
+    applyZoom(next);
+    if (commit) setZoom(next);
+  }, [applyZoom]);
 
   const counts = groupCounts(activeMembers);
   const maxDay = toDay(MAX_DATE);
@@ -294,31 +360,43 @@ export default function Home() {
               zoomBy(event.deltaY < 0 ? 1.35 : 1 / 1.35, {
                 x: ((event.clientX - rect.left) / rect.width) * 1000,
                 y: ((event.clientY - rect.top) / rect.height) * 620,
-              });
+              }, false);
+              if (wheelCommitRef.current !== null) window.clearTimeout(wheelCommitRef.current);
+              wheelCommitRef.current = window.setTimeout(() => {
+                setZoom(zoomRef.current);
+                wheelCommitRef.current = null;
+              }, 100);
             }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId);
-              dragRef.current = { clientX: event.clientX, clientY: event.clientY, x: zoom.x, y: zoom.y };
+              const rect = event.currentTarget.getBoundingClientRect();
+              dragRef.current = {
+                clientX: event.clientX,
+                clientY: event.clientY,
+                x: zoomRef.current.x,
+                y: zoomRef.current.y,
+                scaleX: 1000 / rect.width,
+                scaleY: 620 / rect.height,
+              };
               setIsPanning(true);
               setTooltip(null);
             }}
             onPointerMove={(event) => {
               if (!dragRef.current) return;
-              const rect = event.currentTarget.getBoundingClientRect();
-              setZoom((current) => ({
-                ...current,
-                x: dragRef.current!.x + (event.clientX - dragRef.current!.clientX) * (1000 / rect.width),
-                y: dragRef.current!.y + (event.clientY - dragRef.current!.clientY) * (620 / rect.height),
-              }));
+              applyZoom({
+                ...zoomRef.current,
+                x: dragRef.current.x + (event.clientX - dragRef.current.clientX) * dragRef.current.scaleX,
+                y: dragRef.current.y + (event.clientY - dragRef.current.clientY) * dragRef.current.scaleY,
+              });
             }}
-            onPointerUp={() => { dragRef.current = null; setIsPanning(false); }}
-            onPointerCancel={() => { dragRef.current = null; setIsPanning(false); }}
+            onPointerUp={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
+            onPointerCancel={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
           >
             {mapLoading && chamber === "rep" && <div className="map-loading"><span /> Loading {termLabel(congress)} boundaries</div>}
             <div className="zoom-controls" aria-label="Map zoom controls" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
               <button onClick={() => zoomBy(1.5)} aria-label="Zoom in">+</button>
               <button onClick={() => zoomBy(1 / 1.5)} aria-label="Zoom out">−</button>
-              <button onClick={() => setZoom({ x: 0, y: 0, k: 1 })} aria-label="Reset map view">Reset</button>
+              <button onClick={() => { const reset = { x: 0, y: 0, k: 1 }; applyZoom(reset); setZoom(reset); }} aria-label="Reset map view">Reset</button>
             </div>
             <svg viewBox="0 0 1000 620" role="img" aria-label={`${chamber === "rep" ? "House district" : "Senate"} map on ${longDate(date)}`}>
               <defs>
@@ -329,29 +407,12 @@ export default function Home() {
                   return <linearGradient id={`split-${code}`} key={code} x1="0" x2="1"><stop offset="50%" stopColor={colorFor(stateMembers[0].p)} /><stop offset="50%" stopColor={colorFor(stateMembers[1].p)} /></linearGradient>;
                 })}
               </defs>
-              <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
+              <g ref={zoomLayerRef} transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
                 <g className="polity-background">
-                  {path && activePolities.map((polity, index) => (
-                    <path
-                      key={`${polity.properties.NAME}-${polity.properties.START_N}-${index}`}
-                      d={path(polity) ?? undefined}
-                      className={polity.properties.TERR_TYPE === "State" ? "historical-state" : "historical-territory"}
-                    />
-                  ))}
+                  {backgroundPathElements}
                 </g>
                 <g className="map-paths">
-                  {path && visibleFeatures.map((mapFeature, index) => (
-                    <path
-                      key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
-                      d={path(mapFeature) ?? undefined}
-                      fill={fillFor(mapFeature)}
-                      onMouseMove={(event) => {
-                        if (isPanning) return;
-                        const rect = mapRef.current?.getBoundingClientRect();
-                        if (rect) setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, feature: mapFeature });
-                      }}
-                    />
-                  ))}
+                  {mapPathElements}
                 </g>
               </g>
             </svg>

@@ -36,6 +36,8 @@ test("the product source contains the historical map and no starter preview", as
 
   assert.match(page, /historical-polities\.json/);
   assert.match(page, /scroll to zoom/);
+  assert.match(page, /const mapPathElements = useMemo/);
+  assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
   assert.match(layout, /American State/);
   assert.doesNotMatch(page, /SkeletonPreview|_sites-preview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
