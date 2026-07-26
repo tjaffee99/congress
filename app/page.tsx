@@ -22,7 +22,7 @@ type MapProperties = {
 };
 type MapFeature = Feature<Geometry, MapProperties>;
 type ZoomState = { x: number; y: number; k: number };
-type TooltipState = { x: number; y: number; maxHeight: number; feature: MapFeature };
+type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; feature: MapFeature };
 
 const MIN_DATE = "1789-03-04";
 const DAY = 86_400_000;
@@ -163,6 +163,8 @@ export default function Home() {
   } | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const followsTodayRef = useRef(true);
+  const pinnedTooltipRef = useRef(false);
+  const didPanRef = useRef(false);
   const congress = congressFor(date);
 
   useEffect(() => {
@@ -219,6 +221,7 @@ export default function Home() {
   useEffect(() => {
     const reset = { x: 0, y: 0, k: 1 };
     let cancelled = false;
+    pinnedTooltipRef.current = false;
     zoomRef.current = reset;
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
     animationFrameRef.current = null;
@@ -370,6 +373,34 @@ export default function Home() {
     return isConfederateState(STATE_ABBR[stateName], date);
   }, [date]);
 
+  const closeTooltip = useCallback(() => {
+    pinnedTooltipRef.current = false;
+    setTooltip(null);
+  }, []);
+
+  const placeTooltip = useCallback((clientX: number, clientY: number, mapFeature: MapFeature, pinned: boolean) => {
+    const rect = mapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const pointerX = clientX - rect.left;
+    const pointerY = clientY - rect.top;
+    const cardWidth = Math.min(220, rect.width - 16);
+    const preferredHeight = Math.min(190, rect.height - 16);
+    const x = pointerX + 12 + cardWidth <= rect.width - 8
+      ? pointerX + 12
+      : Math.max(8, pointerX - cardWidth - 12);
+    const y = pointerY + 12 + preferredHeight <= rect.height - 8
+      ? pointerY + 12
+      : Math.max(8, pointerY - preferredHeight - 12);
+    pinnedTooltipRef.current = pinned;
+    setTooltip({
+      x,
+      y,
+      maxHeight: Math.max(60, rect.height - y - 8),
+      pinned,
+      feature: mapFeature,
+    });
+  }, []);
+
   const backgroundPathElements = useMemo(
     () => path ? activePolities.map((polity, index) => (
       <path
@@ -391,31 +422,18 @@ export default function Home() {
           className={disabled ? "confederate-state" : undefined}
           fill={disabled ? CONFEDERATE_COLOR : fillFor(mapFeature)}
           onMouseMove={disabled ? undefined : (event) => {
-            if (dragRef.current) return;
-            const rect = mapRef.current?.getBoundingClientRect();
-            if (rect) {
-              const pointerX = event.clientX - rect.left;
-              const pointerY = event.clientY - rect.top;
-              const cardWidth = Math.min(220, rect.width - 16);
-              const preferredHeight = Math.min(190, rect.height - 16);
-              const x = pointerX + 12 + cardWidth <= rect.width - 8
-                ? pointerX + 12
-                : Math.max(8, pointerX - cardWidth - 12);
-              const y = pointerY + 12 + preferredHeight <= rect.height - 8
-                ? pointerY + 12
-                : Math.max(8, pointerY - preferredHeight - 12);
-              setTooltip({
-                x,
-                y,
-                maxHeight: Math.max(60, rect.height - y - 8),
-                feature: mapFeature,
-              });
-            }
+            if (dragRef.current || pinnedTooltipRef.current) return;
+            placeTooltip(event.clientX, event.clientY, mapFeature, false);
+          }}
+          onClick={disabled ? undefined : (event) => {
+            if (didPanRef.current) return;
+            event.stopPropagation();
+            placeTooltip(event.clientX, event.clientY, mapFeature, true);
           }}
         />
       );
     }) : [],
-    [fillFor, isConfederateFeature, path, visibleFeatures],
+    [fillFor, isConfederateFeature, path, placeTooltip, visibleFeatures],
   );
 
   const applyZoom = useCallback((next: ZoomState) => {
@@ -444,7 +462,8 @@ export default function Home() {
   }, [applyZoom]);
 
   const handleMapKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === "+" || event.key === "=") zoomBy(1.5);
+    if (event.key === "Escape") closeTooltip();
+    else if (event.key === "+" || event.key === "=") zoomBy(1.5);
     else if (event.key === "-" || event.key === "_") zoomBy(1 / 1.5);
     else if (event.key === "0") resetZoom();
     else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
@@ -459,7 +478,7 @@ export default function Home() {
       setZoom(next);
     } else return;
     event.preventDefault();
-  }, [applyZoom, resetZoom, zoomBy]);
+  }, [applyZoom, closeTooltip, resetZoom, zoomBy]);
 
   const changeDate = useCallback((next: string) => {
     if (!isValidDateInRange(next, today)) return false;
@@ -569,7 +588,7 @@ export default function Home() {
             tabIndex={0}
             aria-label="Interactive map. Drag to pan; use plus and minus to zoom; use arrow keys to pan; press zero to reset."
             onKeyDown={handleMapKeyDown}
-            onMouseLeave={() => setTooltip(null)}
+            onMouseLeave={() => { if (!pinnedTooltipRef.current) setTooltip(null); }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId);
               const rect = event.currentTarget.getBoundingClientRect();
@@ -581,11 +600,14 @@ export default function Home() {
                 scaleX: 1000 / rect.width,
                 scaleY: 620 / rect.height,
               };
+              didPanRef.current = false;
+              pinnedTooltipRef.current = false;
               setIsPanning(true);
               setTooltip(null);
             }}
             onPointerMove={(event) => {
               if (!dragRef.current) return;
+              if (Math.abs(event.clientX - dragRef.current.clientX) + Math.abs(event.clientY - dragRef.current.clientY) > 3) didPanRef.current = true;
               applyZoom({
                 ...zoomRef.current,
                 x: dragRef.current.x + (event.clientX - dragRef.current.clientX) * dragRef.current.scaleX,
@@ -621,11 +643,12 @@ export default function Home() {
             </svg>
             {tooltip && (
               <div
-                className="tooltip"
+                className={`tooltip ${tooltip.pinned ? "is-pinned" : ""}`}
                 style={{ left: tooltip.x, top: tooltip.y, maxHeight: tooltip.maxHeight }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onWheel={(event) => event.stopPropagation()}
               >
+                {tooltip.pinned && <button className="tooltip-close" type="button" onClick={closeTooltip} aria-label="Close member details">×</button>}
                 {chamber === "sen" ? (
                   <>
                     <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
