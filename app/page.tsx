@@ -468,21 +468,15 @@ export default function Home() {
   return (
     <main>
       <header className="site-header">
-        <a className="brand" href="#top" aria-label="American State home">
+        <a className="brand" href="#atlas" aria-label="American State home">
           <span className="brand-mark" aria-hidden="true" />
           <span><strong>American State</strong><small>A day-by-day atlas of U.S. government</small></span>
         </a>
         <nav aria-label="Site links">
-          <a href="#atlas">Atlas</a><a href="#method">Method</a><a href="#sources">Sources</a>
+          <a href="#atlas">Atlas</a><a href="#sources">Sources</a>
         </nav>
         <div className="coverage"><span /> Data through {longDate(today)}</div>
       </header>
-
-      <section className="intro" id="top">
-        <p className="eyebrow">THE REPUBLIC, RECONSTRUCTED</p>
-        <h1>Who governed America<br />on <em>this day?</em></h1>
-        <p className="dek">Travel through every Congress. See the districts, members, presidents, cabinets, courts, and leadership in office on a single date.</p>
-      </section>
 
       <section className="atlas-shell" id="atlas">
         <div className="atlas-main">
@@ -685,20 +679,9 @@ export default function Home() {
         </aside>
       </section>
 
-      <section className="method" id="method">
-        <div><p className="eyebrow">HOW TO READ THE ATLAS</p><h2>One date.<br />Four branches of context.</h2></div>
-        <div className="method-grid">
-          <article><span>01</span><h3>Daily membership</h3><p>Member service dates drive the color and hover state, so resignations, deaths, appointments, and special elections can change the map between Congresses.</p></article>
-          <article><span>02</span><h3>Period boundaries</h3><p>House geography follows the district plan in force for the selected Congress, including at-large and multi-member arrangements in the early republic.</p></article>
-          <article><span>03</span><h3>Created offices</h3><p>The government rail grows over time. A Cabinet department or leadership post does not appear before the office exists.</p></article>
-          <article><span>04</span><h3>Honest gaps</h3><p>Historical records are uneven. The interface labels vacancies and missing dated tenures instead of inventing continuity.</p></article>
-        </div>
-      </section>
-
       <footer id="sources">
-        <div className="brand footer-brand"><span className="brand-mark" aria-hidden="true" /><span><strong>American State</strong><small>Built for historical inquiry</small></span></div>
-        <p>District boundaries: UCLA Congressional District Boundaries project. Historical states and territories: Newberry Library Atlas of Historical County Boundaries. Congressional service: unitedstates/congress-legislators and official Senate state rosters. Leadership: U.S. Senate Historical Office and U.S. House Historian. Office tenures: Wikidata, cleaned against statutory office dates and official departmental records.</p>
-        <p className="fineprint">A research interface, not an official government record. Vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</p>
+        <p><strong>Sources:</strong> UCLA Congressional District Boundaries · Newberry Library · Congress Legislators · U.S. House and Senate historical offices · Wikidata</p>
+        <small>Research interface · vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</small>
       </footer>
     </main>
   );

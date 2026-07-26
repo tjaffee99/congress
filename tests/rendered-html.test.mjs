@@ -21,7 +21,7 @@ test("server-renders the finished American State atlas shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>American State/);
-  assert.match(html, /Who governed America/);
+  assert.match(html, /DATE IN VIEW/);
   assert.match(html, /House districts/);
   assert.match(html, /aria-label="Map zoom controls"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
@@ -45,6 +45,8 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /value=\{dateDraft\}/);
   assert.match(page, /isValidDateInRange\(next, today\)/);
   assert.doesNotMatch(page, /INITIAL_DATE|2004-08-23/);
+  assert.doesNotMatch(page, /className="intro"|className="method"|HOW TO READ THE ATLAS/);
+  assert.match(page, /<footer id="sources">/);
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
   assert.match(page, /SENATE CONTROL/);
