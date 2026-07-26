@@ -41,11 +41,14 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /\["1977-01-20", "1977"\]/);
   assert.match(page, /wikipediaHref/);
   assert.match(page, /Cabinet-level/);
+  assert.match(page, /confederate-state/);
+  assert.match(page, /isConfederateFeature/);
   assert.match(page, /useState\(currentUsDate\)/);
   assert.match(page, /value=\{dateDraft\}/);
   assert.match(page, /isValidDateInRange\(next, today\)/);
   assert.doesNotMatch(page, /INITIAL_DATE|2004-08-23/);
   assert.doesNotMatch(page, /className="intro"|className="method"|HOW TO READ THE ATLAS/);
+  assert.doesNotMatch(page, /<nav|Data through/);
   assert.match(page, /<footer id="sources">/);
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);

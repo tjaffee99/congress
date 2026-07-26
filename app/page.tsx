@@ -5,6 +5,7 @@ import { geoAlbersUsa, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
+import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
 
 type Chamber = "sen" | "rep";
@@ -56,6 +57,7 @@ const PARTY_COLORS: Record<string, string> = {
 };
 const CAUCUS_COLORS: Record<string, string> = { Democrat: "#91aec2", Republican: "#d99a95" };
 const VACANT_COLOR = "#c8c2b8";
+const CONFEDERATE_COLOR = "#8f918c";
 
 function colorFor(party?: string) {
   if (!party) return "#d6d0c5";
@@ -233,7 +235,7 @@ export default function Home() {
   }, []);
 
   const activeMembers = useMemo(
-    () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && member.a <= date && member.z > date),
+    () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && member.a <= date && member.z > date),
     [members, chamber, date],
   );
   const activeOfficials = useMemo(
@@ -363,6 +365,11 @@ export default function Home() {
       : `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`;
   }, [chamber, memberForDistrict, senateSeatColors]);
 
+  const isConfederateFeature = useCallback((mapFeature: MapFeature) => {
+    const stateName = mapFeature.properties.statename ?? mapFeature.properties.NAME ?? mapFeature.properties.name ?? "";
+    return isConfederateState(STATE_ABBR[stateName], date);
+  }, [date]);
+
   const backgroundPathElements = useMemo(
     () => path ? activePolities.map((polity, index) => (
       <path
@@ -375,36 +382,40 @@ export default function Home() {
   );
 
   const mapPathElements = useMemo(
-    () => path ? visibleFeatures.map((mapFeature, index) => (
-      <path
-        key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
-        d={path(mapFeature) ?? undefined}
-        fill={fillFor(mapFeature)}
-        onMouseMove={(event) => {
-          if (dragRef.current) return;
-          const rect = mapRef.current?.getBoundingClientRect();
-          if (rect) {
-            const pointerX = event.clientX - rect.left;
-            const pointerY = event.clientY - rect.top;
-            const cardWidth = Math.min(220, rect.width - 16);
-            const preferredHeight = Math.min(190, rect.height - 16);
-            const x = pointerX + 12 + cardWidth <= rect.width - 8
-              ? pointerX + 12
-              : Math.max(8, pointerX - cardWidth - 12);
-            const y = pointerY + 12 + preferredHeight <= rect.height - 8
-              ? pointerY + 12
-              : Math.max(8, pointerY - preferredHeight - 12);
-            setTooltip({
-              x,
-              y,
-              maxHeight: Math.max(60, rect.height - y - 8),
-              feature: mapFeature,
-            });
-          }
-        }}
-      />
-    )) : [],
-    [fillFor, path, visibleFeatures],
+    () => path ? visibleFeatures.map((mapFeature, index) => {
+      const disabled = isConfederateFeature(mapFeature);
+      return (
+        <path
+          key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
+          d={path(mapFeature) ?? undefined}
+          className={disabled ? "confederate-state" : undefined}
+          fill={disabled ? CONFEDERATE_COLOR : fillFor(mapFeature)}
+          onMouseMove={disabled ? undefined : (event) => {
+            if (dragRef.current) return;
+            const rect = mapRef.current?.getBoundingClientRect();
+            if (rect) {
+              const pointerX = event.clientX - rect.left;
+              const pointerY = event.clientY - rect.top;
+              const cardWidth = Math.min(220, rect.width - 16);
+              const preferredHeight = Math.min(190, rect.height - 16);
+              const x = pointerX + 12 + cardWidth <= rect.width - 8
+                ? pointerX + 12
+                : Math.max(8, pointerX - cardWidth - 12);
+              const y = pointerY + 12 + preferredHeight <= rect.height - 8
+                ? pointerY + 12
+                : Math.max(8, pointerY - preferredHeight - 12);
+              setTooltip({
+                x,
+                y,
+                maxHeight: Math.max(60, rect.height - y - 8),
+                feature: mapFeature,
+              });
+            }
+          }}
+        />
+      );
+    }) : [],
+    [fillFor, isConfederateFeature, path, visibleFeatures],
   );
 
   const applyZoom = useCallback((next: ZoomState) => {
@@ -460,6 +471,7 @@ export default function Home() {
 
   const maxDay = toDay(today);
   const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
+  const hasConfederateGeography = visibleFeatures.some(isConfederateFeature);
   const groups = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"];
   const chamberLeadership = resolvedActiveOfficials
     .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
@@ -472,10 +484,6 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true" />
           <span><strong>American State</strong><small>A day-by-day atlas of U.S. government</small></span>
         </a>
-        <nav aria-label="Site links">
-          <a href="#atlas">Atlas</a><a href="#sources">Sources</a>
-        </nav>
-        <div className="coverage"><span /> Data through {longDate(today)}</div>
       </header>
 
       <section className="atlas-shell" id="atlas">
@@ -643,6 +651,7 @@ export default function Home() {
           <div className="legend">
             <span className="legend-title">SEATS FILLED</span>
             {chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
+            {hasConfederateGeography && <span><i className="confederate-swatch" />Seceded state</span>}
             <span><i className="territory-swatch" />Territory / other U.S. area</span>
           </div>
         </div>

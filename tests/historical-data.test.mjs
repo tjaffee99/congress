@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { feature } from "topojson-client";
+import { isConfederateState } from "../app/confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "../app/house-members.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
@@ -117,6 +118,16 @@ test("the 1840 political geography includes states and federal territories", () 
   assert.equal(active.filter((polity) => polity.properties.TERR_TYPE === "State").length, 26);
   assert.ok(active.some((polity) => polity.properties.NAME === "Iowa Territory"));
   assert.ok(active.some((polity) => polity.properties.NAME === "Wisconsin Territory"));
+});
+
+test("seceded states are disabled only during their Confederate interval", () => {
+  assert.equal(isConfederateState("SC", "1860-12-19"), false);
+  assert.equal(isConfederateState("SC", "1860-12-20"), true);
+  assert.equal(isConfederateState("VA", "1861-04-16"), false);
+  assert.equal(isConfederateState("VA", "1861-04-17"), true);
+  assert.equal(isConfederateState("TN", "1861-06-08"), true);
+  assert.equal(isConfederateState("KY", "1863-07-01"), false);
+  assert.equal(isConfederateState("TX", "1865-06-03"), false);
 });
 
 test("modern House district maps retain enough geometry for close zooming", async () => {
