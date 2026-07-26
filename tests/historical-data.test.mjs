@@ -27,6 +27,12 @@ test("independent senators retain their caucus affiliation", () => {
   assert.equal(sanders.c, "Democrat");
 });
 
+test("current House totals exclude six non-voting territorial delegates", () => {
+  const nonVoting = new Set(["AS", "DC", "GU", "MP", "PR", "VI"]);
+  assert.equal(activeHouse("2026-07-26").filter((member) => !nonVoting.has(member.s)).length, 431);
+  assert.equal(activeHouse("2026-07-26").length, 437);
+});
+
 test("a Senate vacancy remains visible until an appointed successor takes office", () => {
   const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-12" && member.z > "2026-07-12");
   const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
@@ -41,6 +47,19 @@ test("Cabinet offices do not appear before their creation and have one active ho
   const byTitle = Map.groupBy(currentCabinet, (official) => official.t);
   assert.equal([...byTitle.values()].every((holders) => holders.length === 1), true);
   assert.deepEqual(byTitle.get("Attorney General")?.map((official) => official.n), ["Todd Blanche"]);
+});
+
+test("Cabinet-level offices appear only after their posts were created", () => {
+  assert.equal(activeOfficials("1900-01-01").some((official) => official.g === "Cabinet-level"), false);
+  const current = activeOfficials("2026-07-26").filter((official) => official.g === "Cabinet-level");
+  assert.ok(current.length >= 7);
+  assert.ok(current.some((official) => official.t === "White House Chief of Staff"));
+  assert.ok(current.some((official) => official.t === "EPA Administrator"));
+});
+
+test("people have direct Wikipedia records or a clickable search fallback", () => {
+  assert.ok(members.some((member) => member.w?.startsWith("https://en.wikipedia.org/wiki/")));
+  assert.ok(officials.some((official) => official.w?.startsWith("https://en.wikipedia.org/wiki/")));
 });
 
 test("the current Supreme Court contains one chief and eight associate justices", () => {

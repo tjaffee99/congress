@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { geoAlbersUsa, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
@@ -8,8 +8,8 @@ import type { GeometryCollection, Topology } from "topojson-specification";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
 
 type Chamber = "sen" | "rep";
-type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; a: string; z: string };
-type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; x?: boolean; a: string; z: string | null };
+type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string };
+type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; x?: boolean; w?: string | null; a: string; z: string | null };
 type MapProperties = {
   name?: string;
   statename?: string;
@@ -21,6 +21,7 @@ type MapProperties = {
 };
 type MapFeature = Feature<Geometry, MapProperties>;
 type ZoomState = { x: number; y: number; k: number };
+type TooltipState = { x: number; y: number; maxHeight: number; feature: MapFeature };
 
 const MIN_DATE = "1789-03-04";
 const MAX_DATE = "2026-07-26";
@@ -38,6 +39,16 @@ const STATE_ABBR: Record<string, string> = {
   "South Dakota": "SD", Tennessee: "TN", Texas: "TX", Utah: "UT", Vermont: "VT", Virginia: "VA",
   Washington: "WA", "West Virginia": "WV", Wisconsin: "WI", Wyoming: "WY",
 };
+const STATE_CODES = new Set(Object.values(STATE_ABBR));
+const TIMELINE_MARKS = [
+  [MIN_DATE, "1789"],
+  ["1840-01-01", "1840"],
+  ["1865-04-09", "1865"],
+  ["1913-03-04", "1913"],
+  ["1977-01-20", "1977"],
+  ["2001-01-20", "2001"],
+  [MAX_DATE, "Today"],
+] as const;
 
 const PARTY_COLORS: Record<string, string> = {
   Republican: "#b64c44", Democrat: "#416f91", Independent: "#887c70", Federalist: "#b28a43",
@@ -67,6 +78,10 @@ function partyLabel(member: Member) {
     : member.p;
 }
 
+function wikipediaHref(person: { n: string; w?: string | null }) {
+  return person.w ?? `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(person.n.replaceAll("“", "").replaceAll("”", ""))}`;
+}
+
 function toDay(date: string) {
   return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${MIN_DATE}T00:00:00Z`)) / DAY);
 }
@@ -78,10 +93,10 @@ function fromDay(day: number) {
 function congressFor(date: string) {
   const [year, month, day] = date.split("-").map(Number);
   if (date >= "1935-01-03") {
-    let start = year % 2 === 1 && (month > 1 || (month === 1 && day >= 3)) ? year : year - (year % 2 === 0 ? 1 : 2);
+    const start = year % 2 === 1 && (month > 1 || (month === 1 && day >= 3)) ? year : year - (year % 2 === 0 ? 1 : 2);
     return Math.max(1, Math.min(119, (start - 1787) / 2));
   }
-  let start = year % 2 === 1 && (month > 3 || (month === 3 && day >= 4)) ? year : year - (year % 2 === 0 ? 1 : 2);
+  const start = year % 2 === 1 && (month > 3 || (month === 3 && day >= 4)) ? year : year - (year % 2 === 0 ? 1 : 2);
   return Math.max(1, Math.min(73, (start - 1787) / 2));
 }
 
@@ -109,7 +124,7 @@ export default function Home() {
   const [historicalPolities, setHistoricalPolities] = useState<MapFeature[]>([]);
   const [districts, setDistricts] = useState<MapFeature[]>([]);
   const [mapLoading, setMapLoading] = useState(true);
-  const [tooltip, setTooltip] = useState<{ x: number; y: number; feature: MapFeature } | null>(null);
+  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [zoom, setZoom] = useState<ZoomState>({ x: 0, y: 0, k: 1 });
   const [isPanning, setIsPanning] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -124,7 +139,6 @@ export default function Home() {
     scaleY: number;
   } | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const wheelCommitRef = useRef<number | null>(null);
   const congress = congressFor(date);
 
   useEffect(() => {
@@ -144,7 +158,7 @@ export default function Home() {
   useEffect(() => {
     if (chamber !== "rep") return;
     let cancelled = false;
-    setMapLoading(true);
+    queueMicrotask(() => { if (!cancelled) setMapLoading(true); });
     fetch(`/data/districts/${String(congress).padStart(3, "0")}.json`)
       .then((response) => response.json())
       .then((topology: Topology) => {
@@ -166,22 +180,24 @@ export default function Home() {
 
   useEffect(() => {
     const reset = { x: 0, y: 0, k: 1 };
+    let cancelled = false;
     zoomRef.current = reset;
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
     animationFrameRef.current = null;
-    if (wheelCommitRef.current !== null) window.clearTimeout(wheelCommitRef.current);
-    wheelCommitRef.current = null;
-    setZoom(reset);
-    setTooltip(null);
-  }, [chamber, congress]);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setZoom(reset);
+      setTooltip(null);
+    });
+    return () => { cancelled = true; };
+  }, [chamber]);
 
   useEffect(() => () => {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
-    if (wheelCommitRef.current !== null) window.clearTimeout(wheelCommitRef.current);
   }, []);
 
   const activeMembers = useMemo(
-    () => members.filter((member) => member.t === chamber && member.a <= date && member.z > date),
+    () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && member.a <= date && member.z > date),
     [members, chamber, date],
   );
   const activeOfficials = useMemo(
@@ -209,8 +225,17 @@ export default function Home() {
     () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
     [activePolities],
   );
+  const houseSeatCapacity = useMemo(() => {
+    const [congressStart, congressEnd] = congressDates(congress);
+    const terms = members.filter((member) =>
+      member.t === "rep" && STATE_CODES.has(member.s) && member.a < congressEnd && member.z > congressStart,
+    );
+    const observed = Math.max(0, ...[congressStart, ...terms.map((term) => term.a)]
+      .map((point) => terms.filter((term) => term.a <= point && term.z > point).length));
+    return congress >= 63 ? Math.max(435, observed) : observed;
+  }, [congress, members]);
   const chamberSummary = useMemo(() => {
-    const seatTotal = chamber === "sen" ? activeStates.length * 2 : activeMembers.length;
+    const seatTotal = chamber === "sen" ? activeStates.length * 2 : houseSeatCapacity;
     const vacancies = Math.max(0, seatTotal - activeMembers.length);
     const controlCounts = new Map<string, number>();
     const visualGroups = new Map<string, { label: string; color: string; count: number }>();
@@ -238,7 +263,7 @@ export default function Home() {
     });
     if (vacancies) segments.push({ label: "Vacant", color: VACANT_COLOR, count: vacancies });
     return { seatTotal, vacancies, majority, controlLabel, segments };
-  }, [activeMembers, activeStates.length, chamber, resolvedActiveOfficials]);
+  }, [activeMembers, activeStates.length, chamber, houseSeatCapacity, resolvedActiveOfficials]);
   const visibleDistricts = useMemo(() => {
     const [congressStart, congressEnd] = congressDates(congress);
     const planMembers = members.filter(
@@ -322,7 +347,24 @@ export default function Home() {
         onMouseMove={(event) => {
           if (dragRef.current) return;
           const rect = mapRef.current?.getBoundingClientRect();
-          if (rect) setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, feature: mapFeature });
+          if (rect) {
+            const pointerX = event.clientX - rect.left;
+            const pointerY = event.clientY - rect.top;
+            const cardWidth = Math.min(220, rect.width - 16);
+            const preferredHeight = Math.min(190, rect.height - 16);
+            const x = pointerX + 12 + cardWidth <= rect.width - 8
+              ? pointerX + 12
+              : Math.max(8, pointerX - cardWidth - 12);
+            const y = pointerY + 12 + preferredHeight <= rect.height - 8
+              ? pointerY + 12
+              : Math.max(8, pointerY - preferredHeight - 12);
+            setTooltip({
+              x,
+              y,
+              maxHeight: Math.max(60, rect.height - y - 8),
+              feature: mapFeature,
+            });
+          }
         }}
       />
     )) : [],
@@ -339,17 +381,41 @@ export default function Home() {
     });
   }, []);
 
-  const zoomBy = useCallback((factor: number, point = { x: 500, y: 310 }, commit = true) => {
+  const zoomBy = useCallback((factor: number, point = { x: 500, y: 310 }) => {
     const current = zoomRef.current;
     const nextK = Math.max(1, Math.min(16, current.k * factor));
     const ratio = nextK / current.k;
     const next = { k: nextK, x: point.x - (point.x - current.x) * ratio, y: point.y - (point.y - current.y) * ratio };
     applyZoom(next);
-    if (commit) setZoom(next);
+    setZoom(next);
   }, [applyZoom]);
 
+  const resetZoom = useCallback(() => {
+    const reset = { x: 0, y: 0, k: 1 };
+    applyZoom(reset);
+    setZoom(reset);
+  }, [applyZoom]);
+
+  const handleMapKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "+" || event.key === "=") zoomBy(1.5);
+    else if (event.key === "-" || event.key === "_") zoomBy(1 / 1.5);
+    else if (event.key === "0") resetZoom();
+    else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+      const current = zoomRef.current;
+      const distance = 45;
+      const next = {
+        ...current,
+        x: current.x + (event.key === "ArrowLeft" ? -distance : event.key === "ArrowRight" ? distance : 0),
+        y: current.y + (event.key === "ArrowUp" ? -distance : event.key === "ArrowDown" ? distance : 0),
+      };
+      applyZoom(next);
+      setZoom(next);
+    } else return;
+    event.preventDefault();
+  }, [applyZoom, resetZoom, zoomBy]);
+
   const maxDay = toDay(MAX_DATE);
-  const groups = ["Executive", "Cabinet", "Supreme Court"];
+  const groups = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"];
   const chamberLeadership = resolvedActiveOfficials
     .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
     .sort((a, b) => a.o - b.o);
@@ -358,7 +424,7 @@ export default function Home() {
     <main>
       <header className="site-header">
         <a className="brand" href="#top" aria-label="American State home">
-          <span className="brand-mark">AS</span>
+          <span className="brand-mark" aria-hidden="true" />
           <span><strong>American State</strong><small>A day-by-day atlas of U.S. government</small></span>
         </a>
         <nav aria-label="Site links">
@@ -387,7 +453,15 @@ export default function Home() {
 
           <div className="slider-wrap">
             <input aria-label="Historical date" type="range" min={0} max={maxDay} value={toDay(date)} onChange={(event) => setDate(fromDay(Number(event.target.value)))} />
-            <div className="era-labels"><span>1789</span><span>1861</span><span>1933</span><span>1965</span><span>2001</span><span>Today</span></div>
+            <div className="era-labels" aria-hidden="true">
+              {TIMELINE_MARKS.map(([markDate, label], index) => (
+                <span
+                  className={index === 0 ? "first" : index === TIMELINE_MARKS.length - 1 ? "last" : ""}
+                  key={markDate}
+                  style={{ left: `${(toDay(markDate) / maxDay) * 100}%` }}
+                >{label}</span>
+              ))}
+            </div>
           </div>
 
           <div className="map-toolbar">
@@ -395,7 +469,7 @@ export default function Home() {
               <button className={chamber === "rep" ? "active" : ""} onClick={() => setChamber("rep")} role="tab">House districts</button>
               <button className={chamber === "sen" ? "active" : ""} onClick={() => setChamber("sen")} role="tab">Senate</button>
             </div>
-            <p>{chamber === "rep" ? "Hover for members · scroll to zoom · drag to pan" : "Hover for senators · scroll to zoom · drag to pan"}</p>
+            <p>{chamber === "rep" ? "Hover for members · drag to pan · +/− to zoom" : "Hover for senators · drag to pan · +/− to zoom"}</p>
           </div>
 
           <section className="control-board" aria-label={`${chamber === "rep" ? "House" : "Senate"} party control`}>
@@ -412,7 +486,7 @@ export default function Home() {
                   title={`${segment.label}: ${segment.count}`}
                 />
               ))}
-              <span className="majority-marker"><b>MAJORITY {chamberSummary.majority}</b></span>
+              <span className="majority-marker" style={{ left: `${(chamberSummary.majority / Math.max(1, chamberSummary.seatTotal)) * 100}%` }}><b>MAJORITY {chamberSummary.majority}</b></span>
             </div>
             <div className="control-key">
               {chamberSummary.segments.map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
@@ -422,7 +496,7 @@ export default function Home() {
               {chamberLeadership.map((official) => (
                 <div className="leadership-person" key={`${official.t}-${official.id}`}>
                   <small>{official.t}</small>
-                  <strong>{official.n}</strong>
+                  <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
                   {official.p && <span><i style={{ background: colorFor(official.p) }} />{official.p}</span>}
                 </div>
               ))}
@@ -433,20 +507,11 @@ export default function Home() {
           <div
             className={`map-frame ${isPanning ? "is-panning" : ""}`}
             ref={mapRef}
+            role="region"
+            tabIndex={0}
+            aria-label="Interactive map. Drag to pan; use plus and minus to zoom; use arrow keys to pan; press zero to reset."
+            onKeyDown={handleMapKeyDown}
             onMouseLeave={() => setTooltip(null)}
-            onWheel={(event) => {
-              event.preventDefault();
-              const rect = event.currentTarget.getBoundingClientRect();
-              zoomBy(event.deltaY < 0 ? 1.35 : 1 / 1.35, {
-                x: ((event.clientX - rect.left) / rect.width) * 1000,
-                y: ((event.clientY - rect.top) / rect.height) * 620,
-              }, false);
-              if (wheelCommitRef.current !== null) window.clearTimeout(wheelCommitRef.current);
-              wheelCommitRef.current = window.setTimeout(() => {
-                setZoom(zoomRef.current);
-                wheelCommitRef.current = null;
-              }, 100);
-            }}
             onPointerDown={(event) => {
               event.currentTarget.setPointerCapture(event.pointerId);
               const rect = event.currentTarget.getBoundingClientRect();
@@ -473,10 +538,10 @@ export default function Home() {
             onPointerCancel={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
           >
             {mapLoading && chamber === "rep" && <div className="map-loading"><span /> Loading {termLabel(congress)} boundaries</div>}
-            <div className="zoom-controls" aria-label="Map zoom controls" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+            <div className="zoom-controls" aria-label="Map zoom controls" onPointerDown={(event) => event.stopPropagation()}>
               <button onClick={() => zoomBy(1.5)} aria-label="Zoom in">+</button>
               <button onClick={() => zoomBy(1 / 1.5)} aria-label="Zoom out">−</button>
-              <button onClick={() => { const reset = { x: 0, y: 0, k: 1 }; applyZoom(reset); setZoom(reset); }} aria-label="Reset map view">Reset</button>
+              <button onClick={resetZoom} aria-label="Reset map view">Reset</button>
             </div>
             <svg viewBox="0 0 1000 620" role="img" aria-label={`${chamber === "rep" ? "House district" : "Senate"} map on ${longDate(date)}`}>
               <defs>
@@ -497,14 +562,19 @@ export default function Home() {
               </g>
             </svg>
             {tooltip && (
-              <div className="tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
+              <div
+                className="tooltip"
+                style={{ left: tooltip.x, top: tooltip.y, maxHeight: tooltip.maxHeight }}
+                onPointerDown={(event) => event.stopPropagation()}
+                onWheel={(event) => event.stopPropagation()}
+              >
                 {chamber === "sen" ? (
                   <>
                     <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
                     <ul>{[0, 1].map((seat) => {
                       const member = senatorsForState(tooltip.feature)[seat];
                       return member
-                        ? <li key={member.id}><i style={{ background: colorForMember(member) }} />{member.n}<small>{partyLabel(member)}</small></li>
+                        ? <li key={member.id}><i style={{ background: colorForMember(member) }} /><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a><small>{partyLabel(member)}</small></li>
                         : <li className="vacant-seat" key={`vacant-${seat}`}><i />Vacant<small>Unfilled Senate seat</small></li>;
                     })}</ul>
                   </>
@@ -512,7 +582,7 @@ export default function Home() {
                   <>
                     <strong>{tooltip.feature.properties.statename}{(tooltip.feature.properties.district ?? 0) > 0 ? ` · District ${tooltip.feature.properties.district}` : " · At large"}</strong>
                     <span>U.S. House</span>
-                    {memberForDistrict(tooltip.feature).map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b>{member.n}</b><small>{partyLabel(member)}</small></div>)}
+                    {memberForDistrict(tooltip.feature).map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)}</small></div>)}
                     {!memberForDistrict(tooltip.feature).length && <p>Seat vacant or no member record on this date.</p>}
                   </>
                 )}
@@ -541,7 +611,10 @@ export default function Home() {
                       <h3>{title === "Associate Justice" ? "Associate Justices" : title}</h3>
                       {holders.map((official) => (
                         <div className="official-holder" key={`${official.id}-${official.a}`}>
-                          <strong>{official.n}</strong>
+                          <span className="official-name">
+                            {official.p && <i className="official-party-dot" style={{ background: colorFor(official.p) }} />}
+                            <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
+                          </span>
                           {(official.x || official.p) && <small>{official.x ? "Acting" : ""}{official.x && official.p ? " · " : ""}{official.p ?? ""}</small>}
                         </div>
                       ))}
@@ -567,7 +640,7 @@ export default function Home() {
       </section>
 
       <footer id="sources">
-        <div className="brand footer-brand"><span className="brand-mark">AS</span><span><strong>American State</strong><small>Built for historical inquiry</small></span></div>
+        <div className="brand footer-brand"><span className="brand-mark" aria-hidden="true" /><span><strong>American State</strong><small>Built for historical inquiry</small></span></div>
         <p>District boundaries: UCLA Congressional District Boundaries project. Historical states and territories: Newberry Library Atlas of Historical County Boundaries. Congressional service: unitedstates/congress-legislators and official Senate state rosters. Leadership: U.S. Senate Historical Office and U.S. House Historian. Office tenures: Wikidata, cleaned against statutory office dates and official departmental records.</p>
         <p className="fineprint">A research interface, not an official government record. Vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</p>
       </footer>

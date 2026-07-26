@@ -35,7 +35,12 @@ test("the product source contains the historical map and no starter preview", as
   ]);
 
   assert.match(page, /historical-polities\.json/);
-  assert.match(page, /scroll to zoom/);
+  assert.doesNotMatch(page, /scroll to zoom/);
+  assert.match(page, /drag to pan · \+\/− to zoom/);
+  assert.match(page, /\[chamber\]\);/);
+  assert.match(page, /\["1977-01-20", "1977"\]/);
+  assert.match(page, /wikipediaHref/);
+  assert.match(page, /Cabinet-level/);
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
   assert.match(page, /SENATE CONTROL/);

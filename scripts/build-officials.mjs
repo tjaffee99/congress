@@ -22,8 +22,16 @@ const positions = [
   ["Q967762", "Secretary of Education", "Cabinet", 22],
   ["Q1658460", "Secretary of Veterans Affairs", "Cabinet", 23],
   ["Q642859", "Secretary of Homeland Security", "Cabinet", 24],
-  ["Q11147", "Chief Justice", "Supreme Court", 30],
-  ["Q11144", "Associate Justice", "Supreme Court", 31],
+  ["Q786242", "White House Chief of Staff", "Cabinet-level", 25],
+  ["Q2087596", "EPA Administrator", "Cabinet-level", 26],
+  ["Q16300323", "Director of the Office of Management & Budget", "Cabinet-level", 27],
+  ["Q27907212", "United States Trade Representative", "Cabinet-level", 28],
+  ["Q1785225", "U.S. Ambassador to the United Nations", "Cabinet-level", 29],
+  ["Q15623718", "Small Business Administrator", "Cabinet-level", 30],
+  ["Q1154057", "Director of National Intelligence", "Cabinet-level", 31],
+  ["Q27656", "Director of the Central Intelligence Agency", "Cabinet-level", 32],
+  ["Q11147", "Chief Justice", "Supreme Court", 35],
+  ["Q11144", "Associate Justice", "Supreme Court", 36],
   ["Q912994", "Speaker of the House", "Congressional leadership", 40, "rep"],
   ["Q1140848", "President pro tempore", "Congressional leadership", 41, "sen"],
   ["Q28530268", "Senate majority leader", "Congressional leadership", 42, "sen"],
@@ -50,6 +58,14 @@ const created = {
   "Secretary of Veterans Affairs": "1989-03-15",
   "Secretary of Homeland Security": "2003-01-24",
   "Secretary of Defense": "1947-09-18",
+  "White House Chief of Staff": "1946-01-20",
+  "EPA Administrator": "1970-12-02",
+  "Director of the Office of Management & Budget": "1970-07-01",
+  "United States Trade Representative": "1962-10-11",
+  "U.S. Ambassador to the United Nations": "1947-01-17",
+  "Small Business Administrator": "1953-07-30",
+  "Director of National Intelligence": "2005-04-21",
+  "Director of the Central Intelligence Agency": "2004-12-17",
   "Chief Justice": "1789-09-26",
   "Associate Justice": "1789-09-26",
 };
@@ -107,6 +123,7 @@ const falseOfficeClaims = new Set([
   "Speaker of the House|John Nance Garner",
   "Speaker of the House|Jack Kemp",
   "Secretary of the Interior|Herbert Alton Meyer",
+  "Director of the Central Intelligence Agency|Pito Grotesco",
 ]);
 
 const leadershipRoleMap = new Map([
@@ -122,6 +139,12 @@ function fullName(person) {
   return person.name.official_full ?? [person.name.first, person.name.middle, person.name.last, person.name.suffix]
     .filter(Boolean)
     .join(" ");
+}
+
+function legislatorWikipediaUrl(person) {
+  return person?.id.wikipedia
+    ? `https://en.wikipedia.org/wiki/${encodeURIComponent(person.id.wikipedia).replaceAll("%20", "_")}`
+    : null;
 }
 
 function nextDay(date) {
@@ -259,6 +282,7 @@ async function houseFloorLeaders(legislators) {
         h: "rep",
         p: party,
         x: false,
+        w: legislatorWikipediaUrl(person),
         a: exactRole?.start ?? start,
         z: exactRole?.end ?? end,
       });
@@ -277,6 +301,7 @@ function mergeSameOfficeholder(rows) {
       previous.a = previous.a < row.a ? previous.a : row.a;
       previous.z = !previous.z || !row.z ? null : (previous.z > row.z ? previous.z : row.z);
       previous.p ??= row.p;
+      previous.w ??= row.w;
       continue;
     }
     merged.push({ ...row });
@@ -293,12 +318,16 @@ for (const file of ["work/legislators-historical.yaml", "work/legislators-curren
 const positionById = Object.fromEntries(positions.map((position) => [position[0], position]));
 const values = positions.map(([id]) => `wd:${id}`).join(" ");
 const query = `
-SELECT ?person ?personLabel ?position ?start ?end WHERE {
+SELECT ?person ?personLabel ?position ?start ?end ?article WHERE {
   VALUES ?position { ${values} }
   ?person wdt:P31 wd:Q5; p:P39 ?statement .
   ?statement ps:P39 ?position .
   OPTIONAL { ?statement pq:P580 ?start }
   OPTIONAL { ?statement pq:P582 ?end }
+  OPTIONAL {
+    ?article schema:about ?person;
+      schema:isPartOf <https://en.wikipedia.org/>.
+  }
   ?person rdfs:label ?personLabel .
   FILTER(LANG(?personLabel) = "en")
 }`;
@@ -323,6 +352,7 @@ let officials = bindings.map((row) => {
     h: chamber ?? null,
     p: null,
     x: false,
+    w: row.article?.value ?? null,
     a: row.start?.value?.slice(0, 10) ?? null,
     z: row.end?.value?.slice(0, 10) ?? null,
   };
@@ -350,6 +380,7 @@ officials.push({
   h: null,
   p: null,
   x: true,
+  w: "https://en.wikipedia.org/wiki/Todd_Blanche",
   a: "2026-04-02",
   z: null,
 });
@@ -373,6 +404,7 @@ for (const person of legislators) {
       h: chamber,
       p: term?.party ?? null,
       x: false,
+      w: legislatorWikipediaUrl(person),
       a: role.start,
       z: role.end ?? null,
     });
@@ -381,10 +413,11 @@ for (const person of legislators) {
 
 const legislatorByWikidata = new Map(legislators.filter((person) => person.id.wikidata).map((person) => [person.id.wikidata, person]));
 for (const official of officials) {
+  const matchedLegislator = legislatorByWikidata.get(official.id)
+    ?? legislators.find((candidate) => fullName(candidate) === official.n);
+  official.w ??= legislatorWikipediaUrl(matchedLegislator);
   if (official.g === "Congressional leadership" && !official.p) {
-    const person = legislatorByWikidata.get(official.id)
-      ?? legislators.find((candidate) => fullName(candidate) === official.n);
-    const term = person?.terms.find((candidate) =>
+    const term = matchedLegislator?.terms.find((candidate) =>
       candidate.type === official.h && candidate.start <= official.a && candidate.end > official.a,
     );
     official.p = term?.party ?? null;

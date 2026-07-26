@@ -17,6 +17,12 @@ function fullName(person) {
     .join(" ");
 }
 
+function wikipediaUrl(person) {
+  return person.id.wikipedia
+    ? `https://en.wikipedia.org/wiki/${encodeURIComponent(person.id.wikipedia).replaceAll("%20", "_")}`
+    : null;
+}
+
 const TERM_OVERRIDES = new Map([
   ["S000242:1791-10-24:1793-03-03", { start: "1791-03-04", end: "1792-12-07" }],
   ["H000629:1791-10-24:1793-03-03", { start: "1793-01-30", end: "1793-03-04" }],
@@ -36,6 +42,7 @@ const MANUAL_TERMS = [
     d: null,
     p: "Republican",
     c: null,
+    w: null,
     a: "2026-07-13",
     z: "2027-01-03",
     sourceStart: "2026-07-13",
@@ -76,6 +83,7 @@ async function buildMembers() {
         d: term.district ?? null,
         p: term.party ?? "Unknown",
         c: term.caucus ?? null,
+        w: wikipediaUrl(person),
         a: override?.start ?? term.start,
         z: override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end),
         sourceStart: term.start,
@@ -102,7 +110,13 @@ async function buildMembers() {
     }
   }
 
-  const compactTerms = terms.map(({ sourceStart, sourceEnd, overridden, ...term }) => term);
+  const compactTerms = terms.map((term) => {
+    const compact = { ...term };
+    delete compact.sourceStart;
+    delete compact.sourceEnd;
+    delete compact.overridden;
+    return compact;
+  });
 
   await mkdir(dataOut, { recursive: true });
   await writeFile(path.join(dataOut, "members.json"), JSON.stringify(compactTerms));
