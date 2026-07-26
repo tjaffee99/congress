@@ -43,9 +43,12 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Cabinet-level/);
   assert.match(page, /confederate-state/);
   assert.match(page, /isConfederateFeature/);
+  assert.match(page, /reconstructionDistrictForFeature/);
+  assert.match(page, /tooltip\.labelOnly/);
+  assert.match(page, /\$\{name\} \(seceded\)/);
   assert.match(page, /pinnedTooltipRef/);
   assert.match(page, /tooltip-close/);
-  assert.match(page, /onClick=\{disabled \? undefined/);
+  assert.match(page, /onClick=\{labelOnly \? undefined/);
   assert.match(page, /useState\(currentUsDate\)/);
   assert.match(page, /value=\{dateDraft\}/);
   assert.match(page, /isValidDateInRange\(next, today\)/);

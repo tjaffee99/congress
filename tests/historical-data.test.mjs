@@ -4,6 +4,7 @@ import test from "node:test";
 import { feature } from "topojson-client";
 import { isConfederateState } from "../app/confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "../app/house-members.mjs";
+import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
 const officials = JSON.parse(await readFile(new URL("../public/data/officials.json", import.meta.url), "utf8"));
@@ -128,6 +129,17 @@ test("seceded states are disabled only during their Confederate interval", () =>
   assert.equal(isConfederateState("TN", "1861-06-08"), true);
   assert.equal(isConfederateState("KY", "1863-07-01"), false);
   assert.equal(isConfederateState("TX", "1865-06-03"), false);
+});
+
+test("Reconstruction military districts follow the 1867 act and state readmissions", () => {
+  assert.equal(reconstructionDistrictForState("VA", "1867-03-01"), null);
+  assert.deepEqual(reconstructionDistrictForState("VA", "1867-03-02"), { number: 1, label: "First Military District" });
+  assert.equal(reconstructionDistrictForState("TN", "1867-06-01"), null);
+  assert.equal(reconstructionDistrictForState("NC", "1868-06-25"), null);
+  assert.deepEqual(reconstructionDistrictForState("MS", "1869-01-01"), { number: 4, label: "Fourth Military District" });
+  assert.equal(reconstructionDistrictForState("MS", "1870-02-23"), null);
+  assert.deepEqual(reconstructionDistrictForState("GA", "1870-01-01"), { number: 3, label: "Third Military District" });
+  assert.equal(reconstructionDistrictForState("GA", "1870-07-15"), null);
 });
 
 test("modern House district maps retain enough geometry for close zooming", async () => {

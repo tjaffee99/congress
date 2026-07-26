@@ -7,6 +7,7 @@ import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "ge
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
+import { reconstructionDistrictForState, reconstructionDistrictLabel } from "./reconstruction-district.mjs";
 
 type Chamber = "sen" | "rep";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string };
@@ -22,7 +23,7 @@ type MapProperties = {
 };
 type MapFeature = Feature<Geometry, MapProperties>;
 type ZoomState = { x: number; y: number; k: number };
-type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; feature: MapFeature };
+type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; labelOnly: string | null; feature: MapFeature };
 
 const MIN_DATE = "1789-03-04";
 const DAY = 86_400_000;
@@ -58,6 +59,13 @@ const PARTY_COLORS: Record<string, string> = {
 const CAUCUS_COLORS: Record<string, string> = { Democrat: "#91aec2", Republican: "#d99a95" };
 const VACANT_COLOR = "#c8c2b8";
 const CONFEDERATE_COLOR = "#8f918c";
+const RECONSTRUCTION_COLORS: Record<number, string> = {
+  1: "#8c7969",
+  2: "#8798a0",
+  3: "#9b8f6f",
+  4: "#788981",
+  5: "#8d7f91",
+};
 
 function colorFor(party?: string) {
   if (!party) return "#d6d0c5";
@@ -373,12 +381,17 @@ export default function Home() {
     return isConfederateState(STATE_ABBR[stateName], date);
   }, [date]);
 
+  const reconstructionDistrictForFeature = useCallback((mapFeature: MapFeature) => {
+    const stateName = mapFeature.properties.statename ?? mapFeature.properties.NAME ?? mapFeature.properties.name ?? "";
+    return reconstructionDistrictForState(STATE_ABBR[stateName], date);
+  }, [date]);
+
   const closeTooltip = useCallback(() => {
     pinnedTooltipRef.current = false;
     setTooltip(null);
   }, []);
 
-  const placeTooltip = useCallback((clientX: number, clientY: number, mapFeature: MapFeature, pinned: boolean) => {
+  const placeTooltip = useCallback((clientX: number, clientY: number, mapFeature: MapFeature, pinned: boolean, labelOnly: string | null = null) => {
     const rect = mapRef.current?.getBoundingClientRect();
     if (!rect) return;
     const pointerX = clientX - rect.left;
@@ -397,35 +410,53 @@ export default function Home() {
       y,
       maxHeight: Math.max(60, rect.height - y - 8),
       pinned,
+      labelOnly,
       feature: mapFeature,
     });
   }, []);
 
   const backgroundPathElements = useMemo(
-    () => path ? activePolities.map((polity, index) => (
-      <path
-        key={`${polity.properties.NAME}-${polity.properties.START_N}-${index}`}
-        d={path(polity) ?? undefined}
-        className={polity.properties.TERR_TYPE === "State" ? "historical-state" : "historical-territory"}
-      />
-    )) : [],
-    [activePolities, path],
+    () => path ? activePolities.map((polity, index) => {
+      const isState = polity.properties.TERR_TYPE === "State";
+      const name = polity.properties.NAME ?? polity.properties.name ?? "Historical territory";
+      const confederate = isState && isConfederateState(STATE_ABBR[name], date);
+      const labelOnly = !isState ? name : confederate ? `${name} (seceded)` : null;
+      return (
+        <path
+          key={`${polity.properties.NAME}-${polity.properties.START_N}-${index}`}
+          d={path(polity) ?? undefined}
+          className={`${isState ? "historical-state" : "historical-territory"}${labelOnly ? " geography-hover" : ""}`}
+          onMouseMove={labelOnly ? (event) => {
+            if (dragRef.current || pinnedTooltipRef.current) return;
+            placeTooltip(event.clientX, event.clientY, polity, false, labelOnly);
+          } : undefined}
+        />
+      );
+    }) : [],
+    [activePolities, date, path, placeTooltip],
   );
 
   const mapPathElements = useMemo(
     () => path ? visibleFeatures.map((mapFeature, index) => {
-      const disabled = isConfederateFeature(mapFeature);
+      const confederate = isConfederateFeature(mapFeature);
+      const reconstructionDistrict = reconstructionDistrictForFeature(mapFeature);
+      const stateName = mapFeature.properties.statename ?? mapFeature.properties.NAME ?? mapFeature.properties.name ?? "";
+      const labelOnly = confederate
+        ? `${stateName} (seceded)`
+        : reconstructionDistrict
+          ? `${stateName} (${reconstructionDistrict.label})`
+          : null;
       return (
         <path
           key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
           d={path(mapFeature) ?? undefined}
-          className={disabled ? "confederate-state" : undefined}
-          fill={disabled ? CONFEDERATE_COLOR : fillFor(mapFeature)}
-          onMouseMove={disabled ? undefined : (event) => {
+          className={confederate ? "confederate-state" : reconstructionDistrict ? `reconstruction-state reconstruction-${reconstructionDistrict.number}` : undefined}
+          fill={confederate ? CONFEDERATE_COLOR : reconstructionDistrict ? RECONSTRUCTION_COLORS[reconstructionDistrict.number] : fillFor(mapFeature)}
+          onMouseMove={(event) => {
             if (dragRef.current || pinnedTooltipRef.current) return;
-            placeTooltip(event.clientX, event.clientY, mapFeature, false);
+            placeTooltip(event.clientX, event.clientY, mapFeature, false, labelOnly);
           }}
-          onClick={disabled ? undefined : (event) => {
+          onClick={labelOnly ? undefined : (event) => {
             if (didPanRef.current) return;
             event.stopPropagation();
             placeTooltip(event.clientX, event.clientY, mapFeature, true);
@@ -433,7 +464,7 @@ export default function Home() {
         />
       );
     }) : [],
-    [fillFor, isConfederateFeature, path, placeTooltip, visibleFeatures],
+    [fillFor, isConfederateFeature, path, placeTooltip, reconstructionDistrictForFeature, visibleFeatures],
   );
 
   const applyZoom = useCallback((next: ZoomState) => {
@@ -491,6 +522,10 @@ export default function Home() {
   const maxDay = toDay(today);
   const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
   const hasConfederateGeography = visibleFeatures.some(isConfederateFeature);
+  const activeReconstructionDistricts = [...new Set(activeStates
+    .map((state) => reconstructionDistrictForFeature(state)?.number)
+    .filter((number): number is number => Boolean(number)))]
+    .sort((a, b) => a - b);
   const groups = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"];
   const chamberLeadership = resolvedActiveOfficials
     .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
@@ -643,13 +678,13 @@ export default function Home() {
             </svg>
             {tooltip && (
               <div
-                className={`tooltip ${tooltip.pinned ? "is-pinned" : ""}`}
+                className={`tooltip ${tooltip.pinned ? "is-pinned" : ""}${tooltip.labelOnly ? " is-geography" : ""}`}
                 style={{ left: tooltip.x, top: tooltip.y, maxHeight: tooltip.maxHeight }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onWheel={(event) => event.stopPropagation()}
               >
-                {tooltip.pinned && <button className="tooltip-close" type="button" onClick={closeTooltip} aria-label="Close member details">×</button>}
-                {chamber === "sen" ? (
+                {tooltip.labelOnly ? <em>{tooltip.labelOnly}</em> : tooltip.pinned && <button className="tooltip-close" type="button" onClick={closeTooltip} aria-label="Close member details">×</button>}
+                {!tooltip.labelOnly && (chamber === "sen" ? (
                   <>
                     <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
                     <ul>{[0, 1].map((seat) => {
@@ -666,7 +701,7 @@ export default function Home() {
                     {memberForDistrict(tooltip.feature).map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)}</small></div>)}
                     {!memberForDistrict(tooltip.feature).length && <p>Seat vacant or no member record on this date.</p>}
                   </>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -675,6 +710,7 @@ export default function Home() {
             <span className="legend-title">SEATS FILLED</span>
             {chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
             {hasConfederateGeography && <span><i className="confederate-swatch" />Seceded state</span>}
+            {activeReconstructionDistricts.map((number) => <span key={`reconstruction-${number}`}><i className={`reconstruction-swatch reconstruction-${number}`} />{reconstructionDistrictLabel(number)}</span>)}
             <span><i className="territory-swatch" />Territory / other U.S. area</span>
           </div>
         </div>
