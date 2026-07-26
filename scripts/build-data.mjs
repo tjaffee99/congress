@@ -129,10 +129,12 @@ async function buildDistricts(selection, force = false) {
       const stateName = path.basename(plan.file).replace(/_(\d{3})_to_(\d{3})\.geojson$/, "");
       for (const mapFeature of data.features) {
         const properties = mapFeature.properties ?? {};
-        const districtKey = Object.keys(properties).find((key) => /^CD\d+FP$/.test(key));
+        const districtKey = Object.keys(properties).find(
+          (key) => key.toLowerCase() === "district" || /^CD\d+FP$/i.test(key),
+        );
         mapFeature.properties = {
           statename: stateName,
-          district: Number(properties.district ?? (districtKey ? properties[districtKey] : 0)),
+          district: Number(districtKey ? properties[districtKey] : 0),
           startcong: plan.start,
           endcong: plan.end,
         };

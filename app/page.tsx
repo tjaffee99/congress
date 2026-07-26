@@ -5,6 +5,7 @@ import { geoAlbersUsa, geoPath } from "d3-geo";
 import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
+import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
 
 type Chamber = "sen" | "rep";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; a: string; z: string };
@@ -67,6 +68,12 @@ function congressFor(date: string) {
   }
   let start = year % 2 === 1 && (month > 3 || (month === 3 && day >= 4)) ? year : year - (year % 2 === 0 ? 1 : 2);
   return Math.max(1, Math.min(73, (start - 1787) / 2));
+}
+
+function congressDates(congress: number) {
+  const startYear = congress <= 73 ? 1787 + congress * 2 : 1935 + (congress - 74) * 2;
+  const monthDay = congress <= 73 ? "03-04" : "01-03";
+  return [`${startYear}-${monthDay}`, `${startYear + 2}-${monthDay}`] as const;
 }
 
 function longDate(date: string) {
@@ -132,7 +139,7 @@ export default function Home() {
           return converted.type === "FeatureCollection" ? converted.features : [converted];
         }) as MapFeature[];
         const latestPlanByDistrict = new Map<string, MapFeature>();
-        features.forEach((mapFeature) => {
+        features.filter((mapFeature) => (mapFeature.properties.district ?? 0) >= 0).forEach((mapFeature) => {
           const key = `${mapFeature.properties.statename}:${mapFeature.properties.district ?? 0}`;
           latestPlanByDistrict.set(key, mapFeature);
         });
@@ -168,7 +175,27 @@ export default function Home() {
     () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
     [activePolities],
   );
-  const visibleFeatures = chamber === "sen" ? activeStates : districts;
+  const visibleDistricts = useMemo(() => {
+    const [congressStart, congressEnd] = congressDates(congress);
+    const planMembers = members.filter(
+      (member) => member.t === "rep" && member.a < congressEnd && member.z > congressStart,
+    );
+    const numberedStates = new Set(
+      districts
+        .filter((mapFeature) => (mapFeature.properties.district ?? 0) > 0)
+        .map((mapFeature) => mapFeature.properties.statename),
+    );
+    return districts.filter((mapFeature) => {
+      const stateName = mapFeature.properties.statename;
+      return houseBoundaryBelongsToPlan(
+        planMembers,
+        STATE_ABBR[stateName ?? ""],
+        mapFeature.properties.district ?? 0,
+        numberedStates.has(stateName),
+      );
+    });
+  }, [congress, districts, members]);
+  const visibleFeatures = chamber === "sen" ? activeStates : visibleDistricts;
   const projection = useMemo(() => {
     const geographicFrame = activePolities.length ? activePolities : visibleFeatures;
     if (!geographicFrame.length) return null;
@@ -180,10 +207,11 @@ export default function Home() {
   const memberForDistrict = (mapFeature: MapFeature) => {
     const state = STATE_ABBR[mapFeature.properties.statename ?? ""];
     const district = mapFeature.properties.district ?? 0;
-    const exact = activeMembers.filter((member) => member.s === state && member.d === district);
-    if (exact.length) return exact;
-    if (district < 0) return activeMembers.filter((member) => member.s === state);
-    return [];
+    const hasNumberedDistricts = visibleDistricts.some(
+      (candidate) => candidate.properties.statename === mapFeature.properties.statename
+        && (candidate.properties.district ?? 0) > 0,
+    );
+    return houseMembersForDistrict(activeMembers, state, district, hasNumberedDistricts);
   };
 
   const senatorsForState = (mapFeature: MapFeature) => {
