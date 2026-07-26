@@ -41,6 +41,10 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /\["1977-01-20", "1977"\]/);
   assert.match(page, /wikipediaHref/);
   assert.match(page, /Cabinet-level/);
+  assert.match(page, /useState\(currentUsDate\)/);
+  assert.match(page, /value=\{dateDraft\}/);
+  assert.match(page, /isValidDateInRange\(next, today\)/);
+  assert.doesNotMatch(page, /INITIAL_DATE|2004-08-23/);
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
   assert.match(page, /SENATE CONTROL/);

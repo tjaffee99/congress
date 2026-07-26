@@ -24,8 +24,6 @@ type ZoomState = { x: number; y: number; k: number };
 type TooltipState = { x: number; y: number; maxHeight: number; feature: MapFeature };
 
 const MIN_DATE = "1789-03-04";
-const MAX_DATE = "2026-07-26";
-const INITIAL_DATE = "2004-08-23";
 const DAY = 86_400_000;
 
 const STATE_ABBR: Record<string, string> = {
@@ -47,7 +45,6 @@ const TIMELINE_MARKS = [
   ["1913-03-04", "1913"],
   ["1977-01-20", "1977"],
   ["2001-01-20", "2001"],
-  [MAX_DATE, "Today"],
 ] as const;
 
 const PARTY_COLORS: Record<string, string> = {
@@ -82,15 +79,36 @@ function wikipediaHref(person: { n: string; w?: string | null }) {
   return person.w ?? `https://en.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(person.n.replaceAll("“", "").replaceAll("”", ""))}`;
 }
 
+function currentUsDate() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function isValidDateInRange(value: string, maximum: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < MIN_DATE || value > maximum) return false;
+  const parsed = Date.parse(`${value}T00:00:00Z`);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === value;
+}
+
 function toDay(date: string) {
-  return Math.round((Date.parse(`${date}T00:00:00Z`) - Date.parse(`${MIN_DATE}T00:00:00Z`)) / DAY);
+  const parsed = Date.parse(`${date}T00:00:00Z`);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.round((parsed - Date.parse(`${MIN_DATE}T00:00:00Z`)) / DAY);
 }
 
 function fromDay(day: number) {
-  return new Date(Date.parse(`${MIN_DATE}T00:00:00Z`) + day * DAY).toISOString().slice(0, 10);
+  const safeDay = Number.isFinite(day) ? day : 0;
+  return new Date(Date.parse(`${MIN_DATE}T00:00:00Z`) + safeDay * DAY).toISOString().slice(0, 10);
 }
 
 function congressFor(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 1;
   const [year, month, day] = date.split("-").map(Number);
   if (date >= "1935-01-03") {
     const start = year % 2 === 1 && (month > 1 || (month === 1 && day >= 3)) ? year : year - (year % 2 === 0 ? 1 : 2);
@@ -107,6 +125,7 @@ function congressDates(congress: number) {
 }
 
 function longDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "Date unavailable";
   return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
     .format(new Date(`${date}T00:00:00Z`));
 }
@@ -117,7 +136,9 @@ function termLabel(congress: number) {
 }
 
 export default function Home() {
-  const [date, setDate] = useState(INITIAL_DATE);
+  const [today, setToday] = useState(currentUsDate);
+  const [date, setDate] = useState(currentUsDate);
+  const [dateDraft, setDateDraft] = useState(currentUsDate);
   const [chamber, setChamber] = useState<Chamber>("rep");
   const [members, setMembers] = useState<Member[]>([]);
   const [officials, setOfficials] = useState<Official[]>([]);
@@ -139,7 +160,22 @@ export default function Home() {
     scaleY: number;
   } | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const followsTodayRef = useRef(true);
   const congress = congressFor(date);
+
+  useEffect(() => {
+    const refreshToday = () => {
+      const current = currentUsDate();
+      setToday(current);
+      if (followsTodayRef.current) {
+        setDate(current);
+        setDateDraft(current);
+      }
+    };
+    queueMicrotask(refreshToday);
+    const timer = window.setInterval(refreshToday, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     Promise.all([
@@ -414,7 +450,16 @@ export default function Home() {
     event.preventDefault();
   }, [applyZoom, resetZoom, zoomBy]);
 
-  const maxDay = toDay(MAX_DATE);
+  const changeDate = useCallback((next: string) => {
+    if (!isValidDateInRange(next, today)) return false;
+    followsTodayRef.current = next === today;
+    setDate(next);
+    setDateDraft(next);
+    return true;
+  }, [today]);
+
+  const maxDay = toDay(today);
+  const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
   const groups = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"];
   const chamberLeadership = resolvedActiveOfficials
     .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
@@ -430,7 +475,7 @@ export default function Home() {
         <nav aria-label="Site links">
           <a href="#atlas">Atlas</a><a href="#method">Method</a><a href="#sources">Sources</a>
         </nav>
-        <div className="coverage"><span /> Data through {longDate(MAX_DATE)}</div>
+        <div className="coverage"><span /> Data through {longDate(today)}</div>
       </header>
 
       <section className="intro" id="top">
@@ -442,21 +487,32 @@ export default function Home() {
       <section className="atlas-shell" id="atlas">
         <div className="atlas-main">
           <div className="date-deck">
-            <button className="step-button" onClick={() => setDate(fromDay(Math.max(0, toDay(date) - 1)))} aria-label="Previous day">←</button>
+            <button className="step-button" onClick={() => changeDate(fromDay(Math.max(0, toDay(date) - 1)))} aria-label="Previous day">←</button>
             <label className="date-readout">
               <span>DATE IN VIEW</span>
-              <input type="date" min={MIN_DATE} max={MAX_DATE} value={date} onChange={(event) => setDate(event.target.value)} />
+              <input
+                type="date"
+                min={MIN_DATE}
+                max={today}
+                value={dateDraft}
+                onChange={(event) => {
+                  const next = event.target.value;
+                  setDateDraft(next);
+                  changeDate(next);
+                }}
+                onBlur={() => { if (!isValidDateInRange(dateDraft, today)) setDateDraft(date); }}
+              />
             </label>
-            <button className="step-button" onClick={() => setDate(fromDay(Math.min(maxDay, toDay(date) + 1)))} aria-label="Next day">→</button>
+            <button className="step-button" onClick={() => changeDate(fromDay(Math.min(maxDay, toDay(date) + 1)))} aria-label="Next day">→</button>
             <div className="term-card"><span>{termLabel(congress)}</span><strong>{activeMembers.length || "—"}</strong><small>{chamber === "rep" ? "House seats filled" : "Senate seats filled"}</small></div>
           </div>
 
           <div className="slider-wrap">
-            <input aria-label="Historical date" type="range" min={0} max={maxDay} value={toDay(date)} onChange={(event) => setDate(fromDay(Number(event.target.value)))} />
+            <input aria-label="Historical date" type="range" min={0} max={maxDay} value={toDay(date)} onChange={(event) => changeDate(fromDay(Number(event.target.value)))} />
             <div className="era-labels" aria-hidden="true">
-              {TIMELINE_MARKS.map(([markDate, label], index) => (
+              {timelineMarks.map(([markDate, label], index) => (
                 <span
-                  className={index === 0 ? "first" : index === TIMELINE_MARKS.length - 1 ? "last" : ""}
+                  className={index === 0 ? "first" : index === timelineMarks.length - 1 ? "last" : ""}
                   key={markDate}
                   style={{ left: `${(toDay(markDate) / maxDay) * 100}%` }}
                 >{label}</span>
