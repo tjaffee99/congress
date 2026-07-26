@@ -90,7 +90,17 @@ async function buildMembers() {
   console.log(`Wrote ${compactTerms.length.toLocaleString()} congressional terms`);
 }
 
-async function buildDistricts() {
+function districtSelection(value) {
+  if (!value) return Array.from({ length: 119 }, (_, index) => index + 1);
+  const match = value.match(/^(\d{1,3})(?:-(\d{1,3}))?$/);
+  if (!match) throw new Error(`Invalid Congress selection: ${value}`);
+  const start = Number(match[1]);
+  const end = Number(match[2] ?? match[1]);
+  if (start < 1 || end > 119 || start > end) throw new Error(`Invalid Congress range: ${value}`);
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
+async function buildDistricts(selection, force = false) {
   await mkdir(districtOut, { recursive: true });
   const normalizedDir = path.join(root, "work/normalized-boundaries");
   await mkdir(normalizedDir, { recursive: true });
@@ -135,16 +145,18 @@ async function buildDistricts() {
     return task;
   }
 
-  const queue = Array.from({ length: 119 }, (_, index) => index + 1);
+  const queue = districtSelection(selection);
   const workers = Array.from({ length: 4 }, async () => {
     while (queue.length) {
       const congress = queue.shift();
       const output = path.join(districtOut, `${String(congress).padStart(3, "0")}.json`);
-      try {
-        await access(output);
-        console.log(`Congress ${congress}: already built`);
-        continue;
-      } catch {}
+      if (!force) {
+        try {
+          await access(output);
+          console.log(`Congress ${congress}: already built`);
+          continue;
+        } catch {}
+      }
       const activePlans = allFiles.filter(({ start, end }) => start <= congress && congress <= end);
       const active = await Promise.all(activePlans.map(normalizedPlan));
       await execFileAsync(
@@ -155,7 +167,7 @@ async function buildDistricts() {
           ...active,
           "combine-files",
           "-simplify",
-          "0.2%",
+          congress >= 115 ? "25%" : "0.2%",
           "keep-shapes",
           "-filter-fields",
           "statename,district,startcong,endcong",
@@ -173,5 +185,7 @@ async function buildDistricts() {
 }
 
 const mode = process.argv[2] ?? "all";
+const selection = process.argv.find((argument) => /^\d{1,3}(?:-\d{1,3})?$/.test(argument));
+const force = process.argv.includes("--force");
 if (mode === "members" || mode === "all") await buildMembers();
-if (mode === "districts" || mode === "all") await buildDistricts();
+if (mode === "districts" || mode === "all") await buildDistricts(selection, force);

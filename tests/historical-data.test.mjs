@@ -27,3 +27,14 @@ test("the 1840 political geography includes states and federal territories", () 
   assert.ok(active.some((polity) => polity.properties.NAME === "Iowa Territory"));
   assert.ok(active.some((polity) => polity.properties.NAME === "Wisconsin Territory"));
 });
+
+test("modern House district maps retain enough geometry for close zooming", async () => {
+  for (const congress of [115, 116, 117, 118, 119]) {
+    const file = String(congress).padStart(3, "0");
+    const districtTopology = JSON.parse(
+      await readFile(new URL(`../public/data/districts/${file}.json`, import.meta.url), "utf8"),
+    );
+    const coordinateCount = districtTopology.arcs.reduce((total, arc) => total + arc.length, 0);
+    assert.ok(coordinateCount > 90_000, `Congress ${congress} has only ${coordinateCount} arc points`);
+  }
+});
