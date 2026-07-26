@@ -1,5 +1,6 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import * as yaml from "js-yaml";
 
 const positions = [
   ["Q11696", "President", "Executive", 1],
@@ -23,13 +24,271 @@ const positions = [
   ["Q642859", "Secretary of Homeland Security", "Cabinet", 24],
   ["Q11147", "Chief Justice", "Supreme Court", 30],
   ["Q11144", "Associate Justice", "Supreme Court", 31],
-  ["Q912994", "Speaker of the House", "Congressional leadership", 40],
-  ["Q1140848", "President pro tempore", "Congressional leadership", 41],
-  ["Q28530268", "Senate majority leader", "Congressional leadership", 42],
-  ["Q100734881", "Senate minority leader", "Congressional leadership", 43],
-  ["Q108913856", "House majority leader", "Congressional leadership", 44],
-  ["Q138208451", "House minority leader", "Congressional leadership", 45],
+  ["Q912994", "Speaker of the House", "Congressional leadership", 40, "rep"],
+  ["Q1140848", "President pro tempore", "Congressional leadership", 41, "sen"],
+  ["Q28530268", "Senate majority leader", "Congressional leadership", 42, "sen"],
+  ["Q100734881", "Senate minority leader", "Congressional leadership", 43, "sen"],
+  ["Q108913856", "House majority leader", "Congressional leadership", 44, "rep"],
+  ["Q138208451", "House minority leader", "Congressional leadership", 45, "rep"],
 ];
+
+const created = {
+  "Secretary of State": "1789-09-15",
+  "Secretary of the Treasury": "1789-09-11",
+  "Secretary of War": "1789-08-07",
+  "Attorney General": "1789-09-24",
+  "Secretary of the Interior": "1849-03-03",
+  "Secretary of Agriculture": "1889-02-15",
+  "Secretary of Commerce": "1913-03-04",
+  "Secretary of Labor": "1913-03-04",
+  "Secretary of Health, Education & Welfare": "1953-04-11",
+  "Secretary of Health & Human Services": "1980-05-04",
+  "Secretary of Housing & Urban Development": "1965-09-09",
+  "Secretary of Transportation": "1966-10-15",
+  "Secretary of Energy": "1977-08-04",
+  "Secretary of Education": "1980-05-04",
+  "Secretary of Veterans Affairs": "1989-03-15",
+  "Secretary of Homeland Security": "2003-01-24",
+  "Secretary of Defense": "1947-09-18",
+  "Chief Justice": "1789-09-26",
+  "Associate Justice": "1789-09-26",
+};
+
+const presidentParties = new Map(Object.entries({
+  "George Washington": "Independent",
+  "John Adams": "Federalist",
+  "Thomas Jefferson": "Democratic-Republican",
+  "James Madison": "Democratic-Republican",
+  "James Monroe": "Democratic-Republican",
+  "John Quincy Adams": "Democratic-Republican",
+  "Andrew Jackson": "Democrat",
+  "Martin Van Buren": "Democrat",
+  "William Henry Harrison": "Whig",
+  "John Tyler": "Whig",
+  "James K. Polk": "Democrat",
+  "Zachary Taylor": "Whig",
+  "Millard Fillmore": "Whig",
+  "Franklin Pierce": "Democrat",
+  "James Buchanan": "Democrat",
+  "Abraham Lincoln": "Republican",
+  "Andrew Johnson": "Democrat",
+  "Ulysses S. Grant": "Republican",
+  "Rutherford B. Hayes": "Republican",
+  "James A. Garfield": "Republican",
+  "Chester A. Arthur": "Republican",
+  "Grover Cleveland": "Democrat",
+  "Benjamin Harrison": "Republican",
+  "William McKinley": "Republican",
+  "Theodore Roosevelt": "Republican",
+  "William Howard Taft": "Republican",
+  "Woodrow Wilson": "Democrat",
+  "Warren G. Harding": "Republican",
+  "Calvin Coolidge": "Republican",
+  "Herbert Hoover": "Republican",
+  "Franklin D. Roosevelt": "Democrat",
+  "Harry S. Truman": "Democrat",
+  "Dwight D. Eisenhower": "Republican",
+  "John F. Kennedy": "Democrat",
+  "Lyndon B. Johnson": "Democrat",
+  "Richard Nixon": "Republican",
+  "Gerald Ford": "Republican",
+  "Jimmy Carter": "Democrat",
+  "Ronald Reagan": "Republican",
+  "George H. W. Bush": "Republican",
+  "Bill Clinton": "Democrat",
+  "George W. Bush": "Republican",
+  "Barack Obama": "Democrat",
+  "Donald Trump": "Republican",
+  "Joe Biden": "Democrat",
+}));
+
+const falseOfficeClaims = new Set([
+  "Speaker of the House|James Madison",
+  "Speaker of the House|John Nance Garner",
+  "Speaker of the House|Jack Kemp",
+  "Secretary of the Interior|Herbert Alton Meyer",
+]);
+
+const leadershipRoleMap = new Map([
+  ["Speaker of the House", ["Speaker of the House", 40, "rep"]],
+  ["President Pro Tempore of the Senate", ["President pro tempore", 41, "sen"]],
+  ["Senate Majority Leader", ["Senate majority leader", 42, "sen"]],
+  ["Senate Minority Leader", ["Senate minority leader", 43, "sen"]],
+  ["House Majority Leader", ["House majority leader", 44, "rep"]],
+  ["House Minority Leader", ["House minority leader", 45, "rep"]],
+]);
+
+function fullName(person) {
+  return person.name.official_full ?? [person.name.first, person.name.middle, person.name.last, person.name.suffix]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function nextDay(date) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
+function textFromHtml(value) {
+  return value
+    .replace(/<[^>]+>/g, "")
+    .replaceAll("&nbsp;", " ")
+    .replaceAll("&ndash;", "–")
+    .replaceAll("&#150;", "–")
+    .replaceAll("&amp;", "&")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+async function senateFloorLeaders() {
+  const response = await fetch("https://www.senate.gov/senators/majority-minority-leaders.htm", {
+    headers: { "User-Agent": "AmericanStateAtlas/1.0" },
+  });
+  if (!response.ok) throw new Error(`Senate leadership query failed: ${response.status}`);
+  const html = await response.text();
+  const transitions = new Map([
+    ["55|Senate minority leader", ["1898-04-29"]],
+    ["59|Senate majority leader", ["1906-06-09"]],
+    ["61|Senate minority leader", ["1909-12-09"]],
+    ["65|Senate minority leader", ["1918-08-25"]],
+    ["66|Senate minority leader", ["1920-04-27"]],
+    ["68|Senate majority leader", ["1924-11-28"]],
+    ["75|Senate majority leader", ["1937-07-22"]],
+    ["78|Senate minority leader", ["1943-11-22"]],
+    ["82|Senate minority leader", ["1952-01-08"]],
+    ["83|Senate majority leader", ["1953-08-04"]],
+    ["91|Senate minority leader", ["1969-09-24"]],
+    ["104|Senate majority leader", ["1996-06-12"]],
+  ]);
+  const leaders = [];
+  for (const row of html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
+    const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
+    if (cells.length < 3) continue;
+    const congressText = textFromHtml(cells[0].replace(/<span[^>]*display\s*:\s*none[^>]*>[\s\S]*?<\/span>/gi, ""));
+    const congressMatch = congressText.match(/(\d+)(?:st|nd|rd|th) Congress \((\d{4})–(\d{4})\)/);
+    if (!congressMatch) continue;
+    const congress = Number(congressMatch[1]);
+    const startYear = Number(congressMatch[2]);
+    const endYear = Number(congressMatch[3]);
+    const monthDay = congress <= 73 ? "03-04" : "01-03";
+    const congressStart = `${startYear}-${monthDay}`;
+    const congressEnd = `${endYear}-${monthDay}`;
+    for (const [cellIndex, title, order] of [[1, "Senate majority leader", 42], [2, "Senate minority leader", 43]]) {
+      const people = [...cells[cellIndex].matchAll(/<a[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>\s*\(([DRI])-([A-Z]{2})\)<\/a>/g)]
+        .map((match) => ({ name: textFromHtml(match[1]), party: match[2] === "D" ? "Democrat" : match[2] === "R" ? "Republican" : "Independent" }));
+      const dates = transitions.get(`${congress}|${title}`) ?? [];
+      people.forEach((person, index) => leaders.push({
+        id: `SENATE-${congress}-${title}-${index}`,
+        n: person.name,
+        t: title,
+        g: "Congressional leadership",
+        o: order,
+        h: "sen",
+        p: person.party,
+        x: false,
+        a: index === 0 ? congressStart : dates[index - 1] ?? congressStart,
+        z: index < people.length - 1 ? dates[index] ?? congressEnd : congressEnd,
+      }));
+    }
+  }
+  const withoutExceptionalCongresses = leaders.filter((leader) => ![107, 117].some((congress) => leader.id.startsWith(`SENATE-${congress}-`)));
+  return withoutExceptionalCongresses.concat([
+    [107, "Senate majority leader", 42, "Thomas A. Daschle", "Democrat", "2001-01-03", "2001-01-20"],
+    [107, "Senate majority leader", 42, "Trent Lott", "Republican", "2001-01-20", "2001-06-06"],
+    [107, "Senate majority leader", 42, "Thomas A. Daschle", "Democrat", "2001-06-06", "2003-01-03"],
+    [107, "Senate minority leader", 43, "Trent Lott", "Republican", "2001-01-03", "2001-01-20"],
+    [107, "Senate minority leader", 43, "Thomas A. Daschle", "Democrat", "2001-01-20", "2001-06-06"],
+    [107, "Senate minority leader", 43, "Trent Lott", "Republican", "2001-06-06", "2003-01-03"],
+    [117, "Senate majority leader", 42, "Mitch McConnell", "Republican", "2021-01-03", "2021-01-20"],
+    [117, "Senate majority leader", 42, "Charles E. Schumer", "Democrat", "2021-01-20", "2023-01-03"],
+    [117, "Senate minority leader", 43, "Charles E. Schumer", "Democrat", "2021-01-03", "2021-01-20"],
+    [117, "Senate minority leader", 43, "Mitch McConnell", "Republican", "2021-01-20", "2023-01-03"],
+  ].map(([congress, title, order, name, party, start, end], index) => ({
+    id: `SENATE-${congress}-${title}-${index}`,
+    n: name,
+    t: title,
+    g: "Congressional leadership",
+    o: order,
+    h: "sen",
+    p: party,
+    x: false,
+    a: start,
+    z: end,
+  })));
+}
+
+async function houseFloorLeaders(legislators) {
+  const sources = [
+    ["https://history.house.gov/People/Office/Majority-Leaders/", "House majority leader", 44],
+    ["https://history.house.gov/People/Office/Minority-Leaders/", "House minority leader", 45],
+  ];
+  const leaders = [];
+  for (const [url, title, order] of sources) {
+    const response = await fetch(url, { headers: { "User-Agent": "AmericanStateAtlas/1.0" } });
+    if (!response.ok) throw new Error(`House leadership query failed: ${response.status}`);
+    const html = await response.text();
+    for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+      const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
+      if (cells.length < 4) continue;
+      const congressMatch = textFromHtml(cells[0]).match(/(\d+)(?:st|nd|rd|th) \((\d{4})–(\d{4})\)/);
+      if (!congressMatch) continue;
+      const congress = Number(congressMatch[1]);
+      const startYear = Number(congressMatch[2]);
+      const endYear = Number(congressMatch[3]);
+      const party = textFromHtml(cells[2]);
+      const state = textFromHtml(cells[3]);
+      const sourceName = textFromHtml(cells[1]);
+      const surname = sourceName.split(",")[0].replace(/[^A-Z]/g, "");
+      const start = congress <= 73 ? `${startYear}-03-04` : `${startYear}-01-03`;
+      const end = congress <= 73 ? `${endYear}-03-04` : `${endYear}-01-03`;
+      const person = legislators.find((candidate) =>
+        candidate.name.last.toUpperCase().replace(/[^A-Z]/g, "") === surname
+        && candidate.terms.some((term) => term.type === "rep" && term.state === state && term.party === party && term.start < end && term.end > start),
+      );
+      const exactRole = person?.leadership_roles?.find((role) => {
+        const mapped = leadershipRoleMap.get(role.title);
+        return mapped?.[0] === title && role.start < end && (!role.end || role.end > start);
+      });
+      leaders.push({
+        id: person?.id.bioguide ?? `HOUSE-${congress}-${title}-${leaders.length}`,
+        n: person ? fullName(person) : sourceName.split(",").reverse().join(" ").trim(),
+        t: title,
+        g: "Congressional leadership",
+        o: order,
+        h: "rep",
+        p: party,
+        x: false,
+        a: exactRole?.start ?? start,
+        z: exactRole?.end ?? end,
+      });
+    }
+  }
+  return leaders;
+}
+
+function mergeSameOfficeholder(rows) {
+  const merged = [];
+  for (const row of [...rows].sort((a, b) => a.t.localeCompare(b.t) || a.id.localeCompare(b.id) || a.a.localeCompare(b.a))) {
+    const previous = merged.at(-1);
+    const touches = previous?.z && row.a <= nextDay(previous.z);
+    const overlapsOpenTerm = previous && !previous.z;
+    if (previous && previous.id === row.id && previous.t === row.t && (touches || overlapsOpenTerm)) {
+      previous.a = previous.a < row.a ? previous.a : row.a;
+      previous.z = !previous.z || !row.z ? null : (previous.z > row.z ? previous.z : row.z);
+      previous.p ??= row.p;
+      continue;
+    }
+    merged.push({ ...row });
+  }
+  return merged;
+}
+
+const root = process.cwd();
+const legislators = [];
+for (const file of ["work/legislators-historical.yaml", "work/legislators-current.yaml"]) {
+  legislators.push(...yaml.load(await readFile(path.join(root, file), "utf8")));
+}
 
 const positionById = Object.fromEntries(positions.map((position) => [position[0], position]));
 const values = positions.map(([id]) => `wd:${id}`).join(" ");
@@ -51,25 +310,115 @@ const response = await fetch(sparql, { headers: { "User-Agent": "AmericanStateAt
 if (!response.ok) throw new Error(`Wikidata query failed: ${response.status}`);
 const bindings = (await response.json()).results.bindings;
 
-const officials = bindings
-  .map((row) => {
-    const person = row.person.value.split("/").pop();
-    const position = row.position.value.split("/").pop();
-    const [, title, group, order] = positionById[position];
-    return {
-      id: person,
-      n: row.personLabel.value,
+let officials = bindings.map((row) => {
+  const person = row.person.value.split("/").pop();
+  const position = row.position.value.split("/").pop();
+  const [, title, group, order, chamber] = positionById[position];
+  return {
+    id: person,
+    n: row.personLabel.value,
+    t: title,
+    g: group,
+    o: order,
+    h: chamber ?? null,
+    p: null,
+    x: false,
+    a: row.start?.value?.slice(0, 10) ?? null,
+    z: row.end?.value?.slice(0, 10) ?? null,
+  };
+}).filter((official) =>
+  official.a
+  && (!created[official.t] || official.a >= created[official.t])
+  && !falseOfficeClaims.has(`${official.t}|${official.n}`),
+);
+
+officials = officials.filter((official) => ![
+  "Senate majority leader",
+  "Senate minority leader",
+  "House majority leader",
+  "House minority leader",
+].includes(official.t));
+officials.push(...await senateFloorLeaders());
+officials.push(...await houseFloorLeaders(legislators));
+
+officials.push({
+  id: "TODD-BLANCHE-ACTING-AG",
+  n: "Todd Blanche",
+  t: "Attorney General",
+  g: "Cabinet",
+  o: 13,
+  h: null,
+  p: null,
+  x: true,
+  a: "2026-04-02",
+  z: null,
+});
+
+for (const person of legislators) {
+  for (const role of person.leadership_roles ?? []) {
+    const mapped = leadershipRoleMap.get(role.title);
+    if (!mapped) continue;
+    const [title, order, chamber] = mapped;
+    if (title === "Senate majority leader" || title === "Senate minority leader") continue;
+    if (title === "President pro tempore" && fullName(person).startsWith("Patty Murray")) continue;
+    const term = person.terms.find((candidate) =>
+      candidate.type === chamber && candidate.start <= role.start && candidate.end > role.start,
+    );
+    officials.push({
+      id: person.id.bioguide,
+      n: fullName(person),
       t: title,
-      g: group,
+      g: "Congressional leadership",
       o: order,
-      a: row.start?.value?.slice(0, 10) ?? null,
-      z: row.end?.value?.slice(0, 10) ?? null,
-    };
+      h: chamber,
+      p: term?.party ?? null,
+      x: false,
+      a: role.start,
+      z: role.end ?? null,
+    });
+  }
+}
+
+const legislatorByWikidata = new Map(legislators.filter((person) => person.id.wikidata).map((person) => [person.id.wikidata, person]));
+for (const official of officials) {
+  if (official.g === "Congressional leadership" && !official.p) {
+    const person = legislatorByWikidata.get(official.id)
+      ?? legislators.find((candidate) => fullName(candidate) === official.n);
+    const term = person?.terms.find((candidate) =>
+      candidate.type === official.h && candidate.start <= official.a && candidate.end > official.a,
+    );
+    official.p = term?.party ?? null;
+  }
+  if (official.t === "President") official.p = presidentParties.get(official.n) ?? null;
+}
+
+officials = mergeSameOfficeholder(officials);
+
+const presidents = officials.filter((official) => official.t === "President");
+for (const official of officials) {
+  if (official.t === "Vice President") {
+    official.p = presidents.find((president) => president.a <= official.a && (!president.z || president.z > official.a))?.p ?? null;
+  }
+}
+
+for (const rows of Map.groupBy(officials.filter((official) => official.t !== "Associate Justice"), (official) => official.t).values()) {
+  rows.sort((a, b) => a.a.localeCompare(b.a));
+  for (let index = 0; index < rows.length - 1; index += 1) {
+    if (!rows[index].z) rows[index].z = rows[index + 1].a;
+  }
+}
+
+const seen = new Set();
+officials = officials
+  .filter((official) => {
+    const key = [official.id, official.t, official.a, official.z].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
   })
-  .filter((official) => official.a)
   .sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
 
-const out = path.join(process.cwd(), "public/data");
+const out = path.join(root, "public/data");
 await mkdir(out, { recursive: true });
 await writeFile(path.join(out, "officials.json"), JSON.stringify(officials));
-console.log(`Wrote ${officials.length.toLocaleString()} dated office tenures`);
+console.log(`Wrote ${officials.length.toLocaleString()} cleaned office tenures`);

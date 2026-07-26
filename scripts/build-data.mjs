@@ -27,6 +27,23 @@ const TERM_OVERRIDES = new Map([
   ["M000389:1839-12-02:1841-03-03", { start: "1839-11-20", end: "1841-03-04" }],
 ]);
 
+const MANUAL_TERMS = [
+  {
+    id: "SC-SEN-2026-DG",
+    n: "Darline Graham",
+    t: "sen",
+    s: "SC",
+    d: null,
+    p: "Republican",
+    c: null,
+    a: "2026-07-13",
+    z: "2027-01-03",
+    sourceStart: "2026-07-13",
+    sourceEnd: "2027-01-02",
+    overridden: true,
+  },
+];
+
 function historicalCongressStart(end) {
   const match = end.match(/^(\d{4})-03-03$/);
   if (!match) return null;
@@ -58,6 +75,7 @@ async function buildMembers() {
         s: term.state,
         d: term.district ?? null,
         p: term.party ?? "Unknown",
+        c: term.caucus ?? null,
         a: override?.start ?? term.start,
         z: override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end),
         sourceStart: term.start,
@@ -66,6 +84,7 @@ async function buildMembers() {
       };
     }),
   );
+  terms.push(...MANUAL_TERMS);
 
   const houseTermsByCongressEnd = Map.groupBy(
     terms.filter((term) => term.t === "rep" && historicalCongressStart(term.sourceEnd)),

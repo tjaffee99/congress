@@ -8,8 +8,8 @@ import type { GeometryCollection, Topology } from "topojson-specification";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
 
 type Chamber = "sen" | "rep";
-type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; a: string; z: string };
-type Official = { id: string; n: string; t: string; g: string; o: number; a: string; z: string | null };
+type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; a: string; z: string };
+type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; x?: boolean; a: string; z: string | null };
 type MapProperties = {
   name?: string;
   statename?: string;
@@ -46,10 +46,25 @@ const PARTY_COLORS: Record<string, string> = {
   Unionist: "#7d6d59", "Conservative Republican": "#9b574c", Populist: "#807548",
   Progressive: "#59847a", "Free Soil": "#6c8454", "American Labor": "#7b5e72", Unknown: "#aaa398",
 };
+const CAUCUS_COLORS: Record<string, string> = { Democrat: "#91aec2", Republican: "#d99a95" };
+const VACANT_COLOR = "#c8c2b8";
 
 function colorFor(party?: string) {
   if (!party) return "#d6d0c5";
   return PARTY_COLORS[party] ?? "#766d66";
+}
+
+function colorForMember(member?: Member) {
+  if (!member) return VACANT_COLOR;
+  if (member.p === "Independent" && member.c && CAUCUS_COLORS[member.c]) return CAUCUS_COLORS[member.c];
+  return colorFor(member.p);
+}
+
+function partyLabel(member: Member) {
+  const caucus = member.c === "Democrat" ? "Democratic" : member.c;
+  return member.p === "Independent" && member.c
+    ? `Independent · ${caucus} caucus`
+    : member.p;
 }
 
 function toDay(date: string) {
@@ -84,17 +99,6 @@ function longDate(date: string) {
 function termLabel(congress: number) {
   const suffix = congress % 100 >= 11 && congress % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[congress % 10] ?? "th";
   return `${congress}${suffix} Congress`;
-}
-
-function groupCounts(items: Member[]) {
-  const counts = new Map<string, number>();
-  items.forEach((item) => counts.set(item.p, (counts.get(item.p) ?? 0) + 1));
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
-}
-
-function initials(name: string) {
-  const parts = name.replace(/“[^”]+”/g, "").split(/\s+/).filter(Boolean);
-  return `${parts[0]?.[0] ?? ""}${parts.at(-1)?.[0] ?? ""}`;
 }
 
 export default function Home() {
@@ -184,6 +188,14 @@ export default function Home() {
     () => officials.filter((official) => official.a <= date && (!official.z || official.z > date)),
     [officials, date],
   );
+  const resolvedActiveOfficials = useMemo(() => {
+    const byOffice = Map.groupBy(activeOfficials, (official) => official.t);
+    return [...byOffice.entries()].flatMap(([title, rows]) => {
+      const unique = [...new Map(rows.map((row) => [`${row.id}-${row.a}`, row])).values()];
+      if (title === "Associate Justice") return unique;
+      return unique.sort((a, b) => b.a.localeCompare(a.a)).slice(0, 1);
+    });
+  }, [activeOfficials]);
   const numericDate = Number(date.replaceAll("-", ""));
   const activePolities = useMemo(
     () => historicalPolities.filter((polity) => {
@@ -197,6 +209,36 @@ export default function Home() {
     () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
     [activePolities],
   );
+  const chamberSummary = useMemo(() => {
+    const seatTotal = chamber === "sen" ? activeStates.length * 2 : activeMembers.length;
+    const vacancies = Math.max(0, seatTotal - activeMembers.length);
+    const controlCounts = new Map<string, number>();
+    const visualGroups = new Map<string, { label: string; color: string; count: number }>();
+    for (const member of activeMembers) {
+      const controlParty = member.c ?? member.p;
+      controlCounts.set(controlParty, (controlCounts.get(controlParty) ?? 0) + 1);
+      const key = `${member.p}|${member.c ?? ""}`;
+      const label = partyLabel(member);
+      const group = visualGroups.get(key) ?? { label, color: colorForMember(member), count: 0 };
+      group.count += 1;
+      visualGroups.set(key, group);
+    }
+    const majority = Math.floor(seatTotal / 2) + 1;
+    const [leadingParty, leadingSeats = 0] = [...controlCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+    const vicePresident = resolvedActiveOfficials.find((official) => official.t === "Vice President");
+    const tieBreak = chamber === "sen" && leadingSeats === seatTotal / 2 && vicePresident?.p === leadingParty;
+    const hasControl = leadingSeats >= majority || tieBreak;
+    const partyName = leadingParty === "Democrat" ? "Democratic" : leadingParty;
+    const controlLabel = hasControl
+      ? `${partyName} control${tieBreak && leadingSeats < majority ? " · VP tie-break" : ""}`
+      : "No party majority";
+    const segments = [...visualGroups.values()].sort((a, b) => {
+      const order = (label: string) => label.startsWith("Democrat") ? 0 : label.startsWith("Independent · Democratic") ? 1 : label.startsWith("Independent") ? 2 : label.startsWith("Republican") ? 4 : 3;
+      return order(a.label) - order(b.label);
+    });
+    if (vacancies) segments.push({ label: "Vacant", color: VACANT_COLOR, count: vacancies });
+    return { seatTotal, vacancies, majority, controlLabel, segments };
+  }, [activeMembers, activeStates.length, chamber, resolvedActiveOfficials]);
   const visibleDistricts = useMemo(() => {
     const [congressStart, congressEnd] = congressDates(congress);
     const planMembers = members.filter(
@@ -247,14 +289,18 @@ export default function Home() {
     return activeMembers.filter((member) => member.s === state);
   }, [activeMembers]);
 
-  const fillFor = useCallback((mapFeature: MapFeature) => {
-    if (chamber === "rep") return colorFor(memberForDistrict(mapFeature)[0]?.p);
+  const senateSeatColors = useCallback((mapFeature: MapFeature) => {
     const senators = senatorsForState(mapFeature);
-    if (!senators.length) return "#d6d0c5";
-    return senators.length > 1 && senators[0].p !== senators[1].p
-      ? `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`
-      : colorFor(senators[0].p);
-  }, [chamber, memberForDistrict, senatorsForState]);
+    return [colorForMember(senators[0]), colorForMember(senators[1])];
+  }, [senatorsForState]);
+
+  const fillFor = useCallback((mapFeature: MapFeature) => {
+    if (chamber === "rep") return colorForMember(memberForDistrict(mapFeature)[0]);
+    const colors = senateSeatColors(mapFeature);
+    return colors[0] === colors[1]
+      ? colors[0]
+      : `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`;
+  }, [chamber, memberForDistrict, senateSeatColors]);
 
   const backgroundPathElements = useMemo(
     () => path ? activePolities.map((polity, index) => (
@@ -302,9 +348,11 @@ export default function Home() {
     if (commit) setZoom(next);
   }, [applyZoom]);
 
-  const counts = groupCounts(activeMembers);
   const maxDay = toDay(MAX_DATE);
-  const groups = ["Executive", "Cabinet", "Supreme Court", "Congressional leadership"];
+  const groups = ["Executive", "Cabinet", "Supreme Court"];
+  const chamberLeadership = resolvedActiveOfficials
+    .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
+    .sort((a, b) => a.o - b.o);
 
   return (
     <main>
@@ -349,6 +397,38 @@ export default function Home() {
             </div>
             <p>{chamber === "rep" ? "Hover for members · scroll to zoom · drag to pan" : "Hover for senators · scroll to zoom · drag to pan"}</p>
           </div>
+
+          <section className="control-board" aria-label={`${chamber === "rep" ? "House" : "Senate"} party control`}>
+            <div className="control-heading">
+              <span>{chamber === "rep" ? "HOUSE CONTROL" : "SENATE CONTROL"}</span>
+              <strong>{chamberSummary.controlLabel}</strong>
+              <small>{activeMembers.length} of {chamberSummary.seatTotal} seats filled{chamberSummary.vacancies ? ` · ${chamberSummary.vacancies} vacant` : ""}</small>
+            </div>
+            <div className="control-meter" aria-label={`Majority threshold: ${chamberSummary.majority} seats`}>
+              {chamberSummary.segments.map((segment) => (
+                <i
+                  key={segment.label}
+                  style={{ width: `${(segment.count / Math.max(1, chamberSummary.seatTotal)) * 100}%`, background: segment.color }}
+                  title={`${segment.label}: ${segment.count}`}
+                />
+              ))}
+              <span className="majority-marker"><b>MAJORITY {chamberSummary.majority}</b></span>
+            </div>
+            <div className="control-key">
+              {chamberSummary.segments.map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
+            </div>
+            <div className="leadership-strip">
+              <span className="leadership-label">LEADERSHIP</span>
+              {chamberLeadership.map((official) => (
+                <div className="leadership-person" key={`${official.t}-${official.id}`}>
+                  <small>{official.t}</small>
+                  <strong>{official.n}</strong>
+                  {official.p && <span><i style={{ background: colorFor(official.p) }} />{official.p}</span>}
+                </div>
+              ))}
+              {!chamberLeadership.length && <p>No dated chamber leadership record for this date.</p>}
+            </div>
+          </section>
 
           <div
             className={`map-frame ${isPanning ? "is-panning" : ""}`}
@@ -401,10 +481,10 @@ export default function Home() {
             <svg viewBox="0 0 1000 620" role="img" aria-label={`${chamber === "rep" ? "House district" : "Senate"} map on ${longDate(date)}`}>
               <defs>
                 {chamber === "sen" && activeStates.map((state) => {
-                  const stateMembers = senatorsForState(state);
                   const code = STATE_ABBR[state.properties.NAME ?? state.properties.name ?? ""];
-                  if (stateMembers.length < 2 || stateMembers[0].p === stateMembers[1].p) return null;
-                  return <linearGradient id={`split-${code}`} key={code} x1="0" x2="1"><stop offset="50%" stopColor={colorFor(stateMembers[0].p)} /><stop offset="50%" stopColor={colorFor(stateMembers[1].p)} /></linearGradient>;
+                  const colors = senateSeatColors(state);
+                  if (colors[0] === colors[1]) return null;
+                  return <linearGradient id={`split-${code}`} key={code} x1="0" x2="1"><stop offset="50%" stopColor={colors[0]} /><stop offset="50%" stopColor={colors[1]} /></linearGradient>;
                 })}
               </defs>
               <g ref={zoomLayerRef} transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
@@ -421,14 +501,18 @@ export default function Home() {
                 {chamber === "sen" ? (
                   <>
                     <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
-                    <ul>{senatorsForState(tooltip.feature).map((member) => <li key={member.id}><i style={{ background: colorFor(member.p) }} />{member.n}<small>{member.p}</small></li>)}</ul>
-                    {!senatorsForState(tooltip.feature).length && <p>No senators seated on this date.</p>}
+                    <ul>{[0, 1].map((seat) => {
+                      const member = senatorsForState(tooltip.feature)[seat];
+                      return member
+                        ? <li key={member.id}><i style={{ background: colorForMember(member) }} />{member.n}<small>{partyLabel(member)}</small></li>
+                        : <li className="vacant-seat" key={`vacant-${seat}`}><i />Vacant<small>Unfilled Senate seat</small></li>;
+                    })}</ul>
                   </>
                 ) : (
                   <>
                     <strong>{tooltip.feature.properties.statename}{(tooltip.feature.properties.district ?? 0) > 0 ? ` · District ${tooltip.feature.properties.district}` : " · At large"}</strong>
                     <span>U.S. House</span>
-                    {memberForDistrict(tooltip.feature).map((member) => <div className="house-member" key={member.id}><i style={{ background: colorFor(member.p) }} /><b>{member.n}</b><small>{member.p}</small></div>)}
+                    {memberForDistrict(tooltip.feature).map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b>{member.n}</b><small>{partyLabel(member)}</small></div>)}
                     {!memberForDistrict(tooltip.feature).length && <p>Seat vacant or no member record on this date.</p>}
                   </>
                 )}
@@ -438,7 +522,7 @@ export default function Home() {
 
           <div className="legend">
             <span className="legend-title">SEATS FILLED</span>
-            {counts.slice(0, 6).map(([party, count]) => <span key={party}><i style={{ background: colorFor(party) }} />{party}<b>{count}</b></span>)}
+            {chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
             <span><i className="territory-swatch" />Territory / other U.S. area</span>
           </div>
         </div>
@@ -446,12 +530,23 @@ export default function Home() {
         <aside className="officials-rail">
           <div className="rail-heading"><p>GOVERNMENT ON</p><h2>{longDate(date)}</h2><span>{termLabel(congress)}</span></div>
           {groups.map((group) => {
-            const rows = activeOfficials.filter((official) => official.g === group).sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
+            const rows = resolvedActiveOfficials.filter((official) => official.g === group).sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
+            const offices = [...Map.groupBy(rows, (official) => official.t).entries()];
             return (
               <details key={group} open={group !== "Cabinet" || rows.length < 10}>
-                <summary><span>{group}</span><b>{rows.length}</b></summary>
+                <summary><span>{group}</span><b>{offices.length}</b></summary>
                 <div className="official-list">
-                  {rows.map((official) => <div className="official" key={`${official.id}-${official.t}`}><span className="portrait">{initials(official.n)}</span><p><strong>{official.n}</strong><small>{official.t}</small></p></div>)}
+                  {offices.map(([title, holders]) => (
+                    <section className="official-office" key={title}>
+                      <h3>{title === "Associate Justice" ? "Associate Justices" : title}</h3>
+                      {holders.map((official) => (
+                        <div className="official-holder" key={`${official.id}-${official.a}`}>
+                          <strong>{official.n}</strong>
+                          {(official.x || official.p) && <small>{official.x ? "Acting" : ""}{official.x && official.p ? " · " : ""}{official.p ?? ""}</small>}
+                        </div>
+                      ))}
+                    </section>
+                  ))}
                   {!rows.length && <p className="empty">No dated officeholder in the source record.</p>}
                 </div>
               </details>
@@ -473,8 +568,8 @@ export default function Home() {
 
       <footer id="sources">
         <div className="brand footer-brand"><span className="brand-mark">AS</span><span><strong>American State</strong><small>Built for historical inquiry</small></span></div>
-        <p>District boundaries: UCLA Congressional District Boundaries project. Historical states and territories: Newberry Library Atlas of Historical County Boundaries. Congressional service: unitedstates/congress-legislators, with documented corrections from the U.S. House Historian. Office tenures: Wikidata.</p>
-        <p className="fineprint">A research interface, not an official government record. Source corrections and leadership datasets can be layered into the same date model.</p>
+        <p>District boundaries: UCLA Congressional District Boundaries project. Historical states and territories: Newberry Library Atlas of Historical County Boundaries. Congressional service: unitedstates/congress-legislators and official Senate state rosters. Leadership: U.S. Senate Historical Office and U.S. House Historian. Office tenures: Wikidata, cleaned against statutory office dates and official departmental records.</p>
+        <p className="fineprint">A research interface, not an official government record. Vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</p>
       </footer>
     </main>
   );

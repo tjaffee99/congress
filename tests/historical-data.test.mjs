@@ -5,6 +5,7 @@ import { feature } from "topojson-client";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "../app/house-members.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
+const officials = JSON.parse(await readFile(new URL("../public/data/officials.json", import.meta.url), "utf8"));
 const topology = JSON.parse(await readFile(new URL("../public/data/historical-polities.json", import.meta.url), "utf8"));
 const polities = feature(topology, Object.values(topology.objects)[0]).features;
 
@@ -12,8 +13,62 @@ function activeHouse(date) {
   return members.filter((member) => member.t === "rep" && member.a <= date && member.z > date);
 }
 
+function activeOfficials(date) {
+  return officials.filter((official) => official.a <= date && (!official.z || official.z > date));
+}
+
 test("the Second Congress begins with its 69-member elected House", () => {
   assert.equal(activeHouse("1791-03-04").length, 69);
+});
+
+test("independent senators retain their caucus affiliation", () => {
+  const sanders = members.find((member) => member.id === "S000033" && member.a === "2007-01-04");
+  assert.equal(sanders.p, "Independent");
+  assert.equal(sanders.c, "Democrat");
+});
+
+test("a Senate vacancy remains visible until an appointed successor takes office", () => {
+  const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-12" && member.z > "2026-07-12");
+  const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
+  assert.equal(beforeAppointment.length, 1);
+  assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham", "Tim Scott"]);
+});
+
+test("Cabinet offices do not appear before their creation and have one active holder", () => {
+  assert.equal(activeOfficials("1800-01-01").some((official) => official.t === "Secretary of Agriculture"), false);
+  assert.equal(activeOfficials("1970-01-01").some((official) => official.t === "Secretary of Energy"), false);
+  const currentCabinet = activeOfficials("2026-07-26").filter((official) => official.g === "Cabinet");
+  const byTitle = Map.groupBy(currentCabinet, (official) => official.t);
+  assert.equal([...byTitle.values()].every((holders) => holders.length === 1), true);
+  assert.deepEqual(byTitle.get("Attorney General")?.map((official) => official.n), ["Todd Blanche"]);
+});
+
+test("the current Supreme Court contains one chief and eight associate justices", () => {
+  const court = activeOfficials("2026-07-26").filter((official) => official.g === "Supreme Court");
+  assert.equal(court.filter((official) => official.t === "Chief Justice").length, 1);
+  assert.equal(court.filter((official) => official.t === "Associate Justice").length, 8);
+});
+
+test("the atlas has complete top chamber leadership for its initial 2004 snapshot", () => {
+  const leadership = activeOfficials("2004-08-23").filter((official) => official.g === "Congressional leadership");
+  assert.deepEqual(
+    leadership.map((official) => official.t).sort(),
+    [
+      "House majority leader",
+      "House minority leader",
+      "President pro tempore",
+      "Senate majority leader",
+      "Senate minority leader",
+      "Speaker of the House",
+    ].sort(),
+  );
+});
+
+test("partisan executive officeholders include party affiliation", () => {
+  const president = activeOfficials("2004-08-23").find((official) => official.t === "President");
+  const vicePresident = activeOfficials("2004-08-23").find((official) => official.t === "Vice President");
+  assert.equal(president.p, "Republican");
+  assert.equal(vicePresident.p, "Republican");
 });
 
 test("historical at-large boundaries find members recorded with district -1", () => {

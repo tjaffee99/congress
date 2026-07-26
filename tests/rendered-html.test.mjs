@@ -38,6 +38,11 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /scroll to zoom/);
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
+  assert.match(page, /SENATE CONTROL/);
+  assert.match(page, /majority-marker/);
+  assert.match(page, /Independent · \$\{caucus\} caucus/);
+  assert.match(page, /Unfilled Senate seat/);
+  assert.doesNotMatch(page, /className="portrait"|initials\(/);
   assert.match(layout, /American State/);
   assert.doesNotMatch(page, /SkeletonPreview|_sites-preview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
