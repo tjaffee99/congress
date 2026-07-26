@@ -17,6 +17,29 @@ function fullName(person) {
     .join(" ");
 }
 
+const TERM_OVERRIDES = new Map([
+  ["S000242:1791-10-24:1793-03-03", { start: "1791-03-04", end: "1792-12-07" }],
+  ["H000629:1791-10-24:1793-03-03", { start: "1793-01-30", end: "1793-03-04" }],
+  ["P000362:1791-10-24:1793-03-03", { start: "1791-03-04", end: "1791-10-29" }],
+  ["M000645:1791-10-24:1793-03-03", { start: "1791-10-29", end: "1793-03-04" }],
+  ["W000216:1791-10-24:1792-03-21", { start: "1791-03-04", end: "1792-03-22" }],
+  ["P000469:1839-12-02:1841-03-03", { start: "1839-03-04", end: "1839-10-29" }],
+  ["M000389:1839-12-02:1841-03-03", { start: "1839-11-20", end: "1841-03-04" }],
+]);
+
+function historicalCongressStart(end) {
+  const match = end.match(/^(\d{4})-03-03$/);
+  if (!match) return null;
+  const startYear = Number(match[1]) - 2;
+  return `${startYear}-03-04`;
+}
+
+function nextDay(date) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
 async function buildMembers() {
   const files = ["work/legislators-historical.yaml", "work/legislators-current.yaml"];
   const people = [];
@@ -26,21 +49,45 @@ async function buildMembers() {
   }
 
   const terms = people.flatMap((person) =>
-    person.terms.map((term) => ({
-      id: person.id.bioguide,
-      n: fullName(person),
-      t: term.type,
-      s: term.state,
-      d: term.district ?? null,
-      p: term.party ?? "Unknown",
-      a: term.start,
-      z: term.end,
-    })),
+    person.terms.map((term) => {
+      const override = TERM_OVERRIDES.get(`${person.id.bioguide}:${term.start}:${term.end}`);
+      return {
+        id: person.id.bioguide,
+        n: fullName(person),
+        t: term.type,
+        s: term.state,
+        d: term.district ?? null,
+        p: term.party ?? "Unknown",
+        a: override?.start ?? term.start,
+        z: override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end),
+        sourceStart: term.start,
+        sourceEnd: term.end,
+        overridden: Boolean(override),
+      };
+    }),
   );
 
+  const houseTermsByCongressEnd = Map.groupBy(
+    terms.filter((term) => term.t === "rep" && historicalCongressStart(term.sourceEnd)),
+    (term) => term.sourceEnd,
+  );
+  for (const [end, cohort] of houseTermsByCongressEnd) {
+    const officialStart = historicalCongressStart(end);
+    const startCounts = new Map();
+    cohort.forEach((term) => startCounts.set(term.sourceStart, (startCounts.get(term.sourceStart) ?? 0) + 1));
+    const [modalStart, modalCount] = [...startCounts.entries()].sort((a, b) => b[1] - a[1])[0];
+    if (modalStart > officialStart && modalCount >= Math.max(10, cohort.length * 0.5)) {
+      cohort.forEach((term) => {
+        if (!term.overridden && term.sourceStart === modalStart) term.a = officialStart;
+      });
+    }
+  }
+
+  const compactTerms = terms.map(({ sourceStart, sourceEnd, overridden, ...term }) => term);
+
   await mkdir(dataOut, { recursive: true });
-  await writeFile(path.join(dataOut, "members.json"), JSON.stringify(terms));
-  console.log(`Wrote ${terms.length.toLocaleString()} congressional terms`);
+  await writeFile(path.join(dataOut, "members.json"), JSON.stringify(compactTerms));
+  console.log(`Wrote ${compactTerms.length.toLocaleString()} congressional terms`);
 }
 
 async function buildDistricts() {

@@ -9,11 +9,20 @@ import type { GeometryCollection, Topology } from "topojson-specification";
 type Chamber = "sen" | "rep";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; a: string; z: string };
 type Official = { id: string; n: string; t: string; g: string; o: number; a: string; z: string | null };
-type MapProperties = { name?: string; statename?: string; district?: number };
+type MapProperties = {
+  name?: string;
+  statename?: string;
+  district?: number;
+  NAME?: string;
+  START_N?: number;
+  END_N?: number;
+  TERR_TYPE?: "State" | "Territory" | "Unorganized Territory" | "District of Columbia" | "Other";
+};
 type MapFeature = Feature<Geometry, MapProperties>;
+type ZoomState = { x: number; y: number; k: number };
 
 const MIN_DATE = "1789-03-04";
-const MAX_DATE = "2026-07-13";
+const MAX_DATE = "2026-07-26";
 const INITIAL_DATE = "2004-08-23";
 const DAY = 86_400_000;
 
@@ -86,24 +95,27 @@ export default function Home() {
   const [chamber, setChamber] = useState<Chamber>("rep");
   const [members, setMembers] = useState<Member[]>([]);
   const [officials, setOfficials] = useState<Official[]>([]);
-  const [states, setStates] = useState<MapFeature[]>([]);
+  const [historicalPolities, setHistoricalPolities] = useState<MapFeature[]>([]);
   const [districts, setDistricts] = useState<MapFeature[]>([]);
   const [mapLoading, setMapLoading] = useState(true);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; feature: MapFeature } | null>(null);
+  const [zoom, setZoom] = useState<ZoomState>({ x: 0, y: 0, k: 1 });
+  const [isPanning, setIsPanning] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ clientX: number; clientY: number; x: number; y: number } | null>(null);
   const congress = congressFor(date);
 
   useEffect(() => {
     Promise.all([
       fetch("/data/members.json").then((response) => response.json()),
       fetch("/data/officials.json").then((response) => response.json()),
-      fetch("/data/states.json").then((response) => response.json()),
+      fetch("/data/historical-polities.json").then((response) => response.json()),
     ]).then(([memberData, officialData, topology]: [Member[], Official[], Topology]) => {
       setMembers(memberData);
       setOfficials(officialData);
-      const object = topology.objects.states as GeometryCollection<MapProperties>;
+      const object = Object.values(topology.objects)[0] as GeometryCollection<MapProperties>;
       const collection = feature(topology, object) as FeatureCollection<Geometry, MapProperties>;
-      setStates(collection.features);
+      setHistoricalPolities(collection.features);
     });
   }, []);
 
@@ -130,6 +142,11 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [chamber, congress]);
 
+  useEffect(() => {
+    setZoom({ x: 0, y: 0, k: 1 });
+    setTooltip(null);
+  }, [chamber, congress]);
+
   const activeMembers = useMemo(
     () => members.filter((member) => member.t === chamber && member.a <= date && member.z > date),
     [members, chamber, date],
@@ -138,12 +155,26 @@ export default function Home() {
     () => officials.filter((official) => official.a <= date && (!official.z || official.z > date)),
     [officials, date],
   );
-  const visibleFeatures = chamber === "sen" ? states : districts;
+  const numericDate = Number(date.replaceAll("-", ""));
+  const activePolities = useMemo(
+    () => historicalPolities.filter((polity) => {
+      const start = polity.properties.START_N ?? 0;
+      const end = polity.properties.END_N ?? 20001231;
+      return start <= numericDate && (end >= numericDate || (end === 20001231 && numericDate > end));
+    }),
+    [historicalPolities, numericDate],
+  );
+  const activeStates = useMemo(
+    () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
+    [activePolities],
+  );
+  const visibleFeatures = chamber === "sen" ? activeStates : districts;
   const projection = useMemo(() => {
-    if (!visibleFeatures.length) return null;
-    const collection: FeatureCollection<Geometry, GeoJsonProperties> = { type: "FeatureCollection", features: visibleFeatures };
+    const geographicFrame = activePolities.length ? activePolities : visibleFeatures;
+    if (!geographicFrame.length) return null;
+    const collection: FeatureCollection<Geometry, GeoJsonProperties> = { type: "FeatureCollection", features: geographicFrame };
     return geoAlbersUsa().fitExtent([[22, 18], [978, 602]], collection);
-  }, [visibleFeatures]);
+  }, [activePolities, visibleFeatures]);
   const path = projection ? geoPath(projection) : null;
 
   const memberForDistrict = (mapFeature: MapFeature) => {
@@ -156,7 +187,7 @@ export default function Home() {
   };
 
   const senatorsForState = (mapFeature: MapFeature) => {
-    const state = STATE_ABBR[mapFeature.properties.name ?? ""];
+    const state = STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""];
     return activeMembers.filter((member) => member.s === state);
   };
 
@@ -165,8 +196,16 @@ export default function Home() {
     const senators = senatorsForState(mapFeature);
     if (!senators.length) return "#d6d0c5";
     return senators.length > 1 && senators[0].p !== senators[1].p
-      ? `url(#split-${STATE_ABBR[mapFeature.properties.name ?? ""]})`
+      ? `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`
       : colorFor(senators[0].p);
+  };
+
+  const zoomBy = (factor: number, point = { x: 500, y: 310 }) => {
+    setZoom((current) => {
+      const nextK = Math.max(1, Math.min(16, current.k * factor));
+      const ratio = nextK / current.k;
+      return { k: nextK, x: point.x - (point.x - current.x) * ratio, y: point.y - (point.y - current.y) * ratio };
+    });
   };
 
   const counts = groupCounts(activeMembers);
@@ -214,39 +253,85 @@ export default function Home() {
               <button className={chamber === "rep" ? "active" : ""} onClick={() => setChamber("rep")} role="tab">House districts</button>
               <button className={chamber === "sen" ? "active" : ""} onClick={() => setChamber("sen")} role="tab">Senate</button>
             </div>
-            <p>{chamber === "rep" ? "Hover a district for its member" : "Hover a state for both senators"}</p>
+            <p>{chamber === "rep" ? "Hover for members · scroll to zoom · drag to pan" : "Hover for senators · scroll to zoom · drag to pan"}</p>
           </div>
 
-          <div className="map-frame" ref={mapRef} onMouseLeave={() => setTooltip(null)}>
+          <div
+            className={`map-frame ${isPanning ? "is-panning" : ""}`}
+            ref={mapRef}
+            onMouseLeave={() => setTooltip(null)}
+            onWheel={(event) => {
+              event.preventDefault();
+              const rect = event.currentTarget.getBoundingClientRect();
+              zoomBy(event.deltaY < 0 ? 1.35 : 1 / 1.35, {
+                x: ((event.clientX - rect.left) / rect.width) * 1000,
+                y: ((event.clientY - rect.top) / rect.height) * 620,
+              });
+            }}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId);
+              dragRef.current = { clientX: event.clientX, clientY: event.clientY, x: zoom.x, y: zoom.y };
+              setIsPanning(true);
+              setTooltip(null);
+            }}
+            onPointerMove={(event) => {
+              if (!dragRef.current) return;
+              const rect = event.currentTarget.getBoundingClientRect();
+              setZoom((current) => ({
+                ...current,
+                x: dragRef.current!.x + (event.clientX - dragRef.current!.clientX) * (1000 / rect.width),
+                y: dragRef.current!.y + (event.clientY - dragRef.current!.clientY) * (620 / rect.height),
+              }));
+            }}
+            onPointerUp={() => { dragRef.current = null; setIsPanning(false); }}
+            onPointerCancel={() => { dragRef.current = null; setIsPanning(false); }}
+          >
             {mapLoading && chamber === "rep" && <div className="map-loading"><span /> Loading {termLabel(congress)} boundaries</div>}
+            <div className="zoom-controls" aria-label="Map zoom controls" onPointerDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}>
+              <button onClick={() => zoomBy(1.5)} aria-label="Zoom in">+</button>
+              <button onClick={() => zoomBy(1 / 1.5)} aria-label="Zoom out">−</button>
+              <button onClick={() => setZoom({ x: 0, y: 0, k: 1 })} aria-label="Reset map view">Reset</button>
+            </div>
             <svg viewBox="0 0 1000 620" role="img" aria-label={`${chamber === "rep" ? "House district" : "Senate"} map on ${longDate(date)}`}>
               <defs>
-                {chamber === "sen" && states.map((state) => {
+                {chamber === "sen" && activeStates.map((state) => {
                   const stateMembers = senatorsForState(state);
-                  const code = STATE_ABBR[state.properties.name ?? ""];
+                  const code = STATE_ABBR[state.properties.NAME ?? state.properties.name ?? ""];
                   if (stateMembers.length < 2 || stateMembers[0].p === stateMembers[1].p) return null;
                   return <linearGradient id={`split-${code}`} key={code} x1="0" x2="1"><stop offset="50%" stopColor={colorFor(stateMembers[0].p)} /><stop offset="50%" stopColor={colorFor(stateMembers[1].p)} /></linearGradient>;
                 })}
               </defs>
-              <g className="map-paths">
-                {path && visibleFeatures.map((mapFeature, index) => (
-                  <path
-                    key={`${mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
-                    d={path(mapFeature) ?? undefined}
-                    fill={fillFor(mapFeature)}
-                    onMouseMove={(event) => {
-                      const rect = mapRef.current?.getBoundingClientRect();
-                      if (rect) setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, feature: mapFeature });
-                    }}
-                  />
-                ))}
+              <g transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
+                <g className="polity-background">
+                  {path && activePolities.map((polity, index) => (
+                    <path
+                      key={`${polity.properties.NAME}-${polity.properties.START_N}-${index}`}
+                      d={path(polity) ?? undefined}
+                      className={polity.properties.TERR_TYPE === "State" ? "historical-state" : "historical-territory"}
+                    />
+                  ))}
+                </g>
+                <g className="map-paths">
+                  {path && visibleFeatures.map((mapFeature, index) => (
+                    <path
+                      key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
+                      d={path(mapFeature) ?? undefined}
+                      fill={fillFor(mapFeature)}
+                      onMouseMove={(event) => {
+                        if (isPanning) return;
+                        const rect = mapRef.current?.getBoundingClientRect();
+                        if (rect) setTooltip({ x: event.clientX - rect.left, y: event.clientY - rect.top, feature: mapFeature });
+                      }}
+                    />
+                  ))}
+                </g>
               </g>
             </svg>
             {tooltip && (
               <div className="tooltip" style={{ left: tooltip.x, top: tooltip.y }}>
                 {chamber === "sen" ? (
                   <>
-                    <strong>{tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
+                    <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
                     <ul>{senatorsForState(tooltip.feature).map((member) => <li key={member.id}><i style={{ background: colorFor(member.p) }} />{member.n}<small>{member.p}</small></li>)}</ul>
                     {!senatorsForState(tooltip.feature).length && <p>No senators seated on this date.</p>}
                   </>
@@ -265,6 +350,7 @@ export default function Home() {
           <div className="legend">
             <span className="legend-title">SEATS FILLED</span>
             {counts.slice(0, 6).map(([party, count]) => <span key={party}><i style={{ background: colorFor(party) }} />{party}<b>{count}</b></span>)}
+            <span><i className="territory-swatch" />Territory / other U.S. area</span>
           </div>
         </div>
 
@@ -298,7 +384,7 @@ export default function Home() {
 
       <footer id="sources">
         <div className="brand footer-brand"><span className="brand-mark">AS</span><span><strong>American State</strong><small>Built for historical inquiry</small></span></div>
-        <p>District boundaries: UCLA Congressional District Boundaries project. Congressional service: unitedstates/congress-legislators. Office tenures: Wikidata, with dates preserved from source statements.</p>
+        <p>District boundaries: UCLA Congressional District Boundaries project. Historical states and territories: Newberry Library Atlas of Historical County Boundaries. Congressional service: unitedstates/congress-legislators, with documented corrections from the U.S. House Historian. Office tenures: Wikidata.</p>
         <p className="fineprint">A research interface, not an official government record. Source corrections and leadership datasets can be layered into the same date model.</p>
       </footer>
     </main>
