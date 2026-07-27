@@ -240,7 +240,7 @@ export default function Home() {
   }, []);
 
   const activeMembers = useMemo(
-    () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && member.a <= date && member.z > date),
+    () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
     [members, chamber, date],
   );
   const activeOfficials = useMemo(

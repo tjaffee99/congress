@@ -7,28 +7,30 @@ const DISTRICT_LABELS = {
 };
 
 const STATE_DISTRICTS = {
-  VA: { number: 1, intervals: [["1867-03-02", "1870-01-26"]] },
-  NC: { number: 2, intervals: [["1867-03-02", "1868-06-25"]] },
-  SC: { number: 2, intervals: [["1867-03-02", "1868-06-25"]] },
-  AL: { number: 3, intervals: [["1867-03-02", "1868-06-25"]] },
-  FL: { number: 3, intervals: [["1867-03-02", "1868-06-25"]] },
+  VA: { number: 1, intervals: [["1865-06-03", "1870-01-26"]] },
+  NC: { number: 2, intervals: [["1865-06-03", "1868-06-25"]] },
+  SC: { number: 2, intervals: [["1865-06-03", "1868-06-25"]] },
+  AL: { number: 3, intervals: [["1865-06-03", "1868-06-25"]] },
+  FL: { number: 3, intervals: [["1865-06-03", "1868-06-25"]] },
   GA: {
     number: 3,
     intervals: [
-      ["1867-03-02", "1868-06-25"],
+      ["1865-06-03", "1868-06-25"],
       ["1869-12-24", "1870-07-15"],
     ],
   },
-  AR: { number: 4, intervals: [["1867-03-02", "1868-06-22"]] },
-  MS: { number: 4, intervals: [["1867-03-02", "1870-02-23"]] },
-  LA: { number: 5, intervals: [["1867-03-02", "1868-06-25"]] },
-  TX: { number: 5, intervals: [["1867-03-02", "1870-03-30"]] },
+  AR: { number: 4, intervals: [["1865-06-03", "1868-06-22"]] },
+  MS: { number: 4, intervals: [["1865-06-03", "1870-02-23"]] },
+  LA: { number: 5, intervals: [["1865-06-03", "1868-06-25"]] },
+  TX: { number: 5, intervals: [["1865-06-03", "1870-03-30"]] },
 };
 
 /**
- * Return the military government district applying to a former Confederate
- * state on a date, ending the layer as each state regained representation.
- * Georgia's second interval reflects its renewed military administration.
+ * Return the Reconstruction district designation used for a former
+ * Confederate state while it lacked congressional representation. The visual
+ * layer begins as secession ends so obsolete House boundaries never reappear
+ * before the formal military districts were created in 1867. Georgia's second
+ * interval reflects its renewed military administration.
  *
  * @param {string | undefined} stateCode
  * @param {string} date
