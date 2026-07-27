@@ -50,6 +50,9 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /pinnedTooltipRef/);
   assert.match(page, /tooltip-close/);
   assert.match(page, /historicalStateOverlayPathElements/);
+  assert.match(page, /mixedDistrictPatternId/);
+  assert.match(page, /Statewide at large/);
+  assert.match(page, /mixed-delegation-swatch/);
   assert.match(page, /useState\(currentUsDate\)/);
   assert.match(page, /value=\{dateDraft\}/);
   assert.match(page, /isValidDateInRange\(next, today\)/);

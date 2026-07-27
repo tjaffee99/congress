@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { feature } from "topojson-client";
 import { isConfederateState } from "../app/confederate-state.mjs";
-import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "../app/house-members.mjs";
+import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "../app/house-members.mjs";
 import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
@@ -106,6 +106,16 @@ test("single-district at-large states find members recorded as district 1", () =
 test("a stale at-large outline is ignored when the state uses numbered districts", () => {
   const planMembers = activeHouse("1792-01-15");
   assert.equal(houseBoundaryBelongsToPlan(planMembers, "PA", 0, true), false);
+});
+
+test("statewide at-large members supplement rather than replace numbered districts", () => {
+  const delegation = [
+    { s: "IL", d: 1, n: "District member" },
+    { s: "IL", d: -1, n: "Statewide member" },
+  ];
+  assert.deepEqual(houseMembersForDistrict(delegation, "IL", 1, true).map((member) => member.n), ["District member"]);
+  assert.deepEqual(houseStatewideAtLargeMembers(delegation, "IL", true).map((member) => member.n), ["Statewide member"]);
+  assert.deepEqual(houseStatewideAtLargeMembers(delegation, "IL", false), []);
 });
 
 test("Pennsylvania district 14 shows McCulloch, not his deceased predecessor, in November 1840", () => {

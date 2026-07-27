@@ -22,6 +22,22 @@ export function houseMembersForDistrict(members, state, district, hasNumberedDis
 }
 
 /**
+ * Return statewide at-large members only when they served alongside numbered
+ * districts. These seats should supplement each local district rather than
+ * replace the internal map with a full-state polygon.
+ *
+ * @template {{ s: string, d: number | null }} T
+ * @param {T[]} members
+ * @param {string | undefined} state
+ * @param {boolean} hasNumberedDistricts
+ * @returns {T[]}
+ */
+export function houseStatewideAtLargeMembers(members, state, hasNumberedDistricts) {
+  if (!state || !hasNumberedDistricts) return [];
+  return members.filter((member) => member.s === state && (member.d === 0 || member.d === -1));
+}
+
+/**
  * Some source files reuse an at-large outline across a broad range that also
  * contains district-based elections. Keep that outline only when it describes
  * the whole plan or the congressional roster confirms an at-large seat.

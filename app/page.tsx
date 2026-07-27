@@ -6,7 +6,7 @@ import { feature } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
-import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
+import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 
 type Chamber = "sen" | "rep";
@@ -243,6 +243,10 @@ export default function Home() {
     () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
     [members, chamber, date],
   );
+  const activeHouseMembers = useMemo(
+    () => members.filter((member) => member.t === "rep" && STATE_CODES.has(member.s) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
+    [members, date],
+  );
   const activeOfficials = useMemo(
     () => officials.filter((official) => official.a <= date && (!official.z || official.z > date)),
     [officials, date],
@@ -308,25 +312,24 @@ export default function Home() {
     return { seatTotal, vacancies, majority, controlLabel, segments };
   }, [activeMembers, activeStates.length, chamber, houseSeatCapacity, resolvedActiveOfficials]);
   const visibleDistricts = useMemo(() => {
-    const [congressStart, congressEnd] = congressDates(congress);
-    const planMembers = members.filter(
-      (member) => member.t === "rep" && member.a < congressEnd && member.z > congressStart,
-    );
     const numberedStates = new Set(
       districts
         .filter((mapFeature) => (mapFeature.properties.district ?? 0) > 0)
         .map((mapFeature) => mapFeature.properties.statename),
     );
+    const activeNumberedStates = new Set(
+      activeHouseMembers.filter((member) => (member.d ?? 0) > 0).map((member) => member.s),
+    );
     return districts.filter((mapFeature) => {
       const stateName = mapFeature.properties.statename;
-      return houseBoundaryBelongsToPlan(
-        planMembers,
-        STATE_ABBR[stateName ?? ""],
-        mapFeature.properties.district ?? 0,
-        numberedStates.has(stateName),
-      );
+      const state = STATE_ABBR[stateName ?? ""];
+      const district = mapFeature.properties.district ?? 0;
+      const hasNumberedDistricts = numberedStates.has(stateName) && activeNumberedStates.has(state);
+      if (district > 0 && !hasNumberedDistricts) return false;
+      if (!houseBoundaryBelongsToPlan(activeHouseMembers, state, district, hasNumberedDistricts)) return false;
+      return district !== 0 || !houseStatewideAtLargeMembers(activeHouseMembers, state, hasNumberedDistricts).length;
     });
-  }, [congress, districts, members]);
+  }, [activeHouseMembers, districts]);
   const visibleFeatures = chamber === "sen" ? activeStates : visibleDistricts;
   const projection = useMemo(() => {
     const geographicFrame = activePolities.length ? activePolities : visibleFeatures;
@@ -352,6 +355,21 @@ export default function Home() {
     return houseMembersForDistrict(activeMembers, state, district, hasNumberedDistricts);
   }, [activeMembers, numberedDistrictStates]);
 
+  const statewideAtLargeMembersForDistrict = useCallback((mapFeature: MapFeature) => {
+    if ((mapFeature.properties.district ?? 0) <= 0) return [];
+    const stateName = mapFeature.properties.statename;
+    return houseStatewideAtLargeMembers(
+      activeMembers,
+      STATE_ABBR[stateName ?? ""],
+      numberedDistrictStates.has(stateName),
+    );
+  }, [activeMembers, numberedDistrictStates]);
+
+  const mixedDistrictPatternId = useCallback((mapFeature: MapFeature) => {
+    const state = STATE_ABBR[mapFeature.properties.statename ?? ""] ?? "state";
+    return `mixed-${state}-${mapFeature.properties.district ?? 0}`;
+  }, []);
+
   const senatorsForState = useCallback((mapFeature: MapFeature) => {
     const state = STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""];
     return activeMembers.filter((member) => member.s === state);
@@ -363,12 +381,16 @@ export default function Home() {
   }, [senatorsForState]);
 
   const fillFor = useCallback((mapFeature: MapFeature) => {
-    if (chamber === "rep") return colorForMember(memberForDistrict(mapFeature)[0]);
+    if (chamber === "rep") {
+      return statewideAtLargeMembersForDistrict(mapFeature).length
+        ? `url(#${mixedDistrictPatternId(mapFeature)})`
+        : colorForMember(memberForDistrict(mapFeature)[0]);
+    }
     const colors = senateSeatColors(mapFeature);
     return colors[0] === colors[1]
       ? colors[0]
       : `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`;
-  }, [chamber, memberForDistrict, senateSeatColors]);
+  }, [chamber, memberForDistrict, mixedDistrictPatternId, senateSeatColors, statewideAtLargeMembersForDistrict]);
 
   const isConfederateFeature = useCallback((mapFeature: MapFeature) => {
     const stateName = mapFeature.properties.statename ?? mapFeature.properties.NAME ?? mapFeature.properties.name ?? "";
@@ -540,6 +562,15 @@ export default function Home() {
   const chamberLeadership = resolvedActiveOfficials
     .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
     .sort((a, b) => a.o - b.o);
+  const tooltipHouseMembers = tooltip && chamber === "rep" && !tooltip.labelOnly
+    ? memberForDistrict(tooltip.feature)
+    : [];
+  const tooltipStatewideAtLargeMembers = tooltip && chamber === "rep" && !tooltip.labelOnly
+    ? statewideAtLargeMembersForDistrict(tooltip.feature)
+    : [];
+  const hasMixedDelegation = chamber === "rep" && visibleDistricts.some(
+    (mapFeature) => statewideAtLargeMembersForDistrict(mapFeature).length > 0,
+  );
 
   return (
     <main>
@@ -676,6 +707,29 @@ export default function Home() {
                   if (colors[0] === colors[1]) return null;
                   return <linearGradient id={`split-${code}`} key={code} x1="0" x2="1"><stop offset="50%" stopColor={colors[0]} /><stop offset="50%" stopColor={colors[1]} /></linearGradient>;
                 })}
+                {chamber === "rep" && visibleDistricts.map((mapFeature) => {
+                  const statewideMembers = statewideAtLargeMembersForDistrict(mapFeature);
+                  if (!statewideMembers.length) return null;
+                  const width = Math.max(8, statewideMembers.length * 8);
+                  return (
+                    <pattern
+                      id={mixedDistrictPatternId(mapFeature)}
+                      key={mixedDistrictPatternId(mapFeature)}
+                      width={width}
+                      height="8"
+                      patternUnits="userSpaceOnUse"
+                      patternTransform="rotate(45)"
+                    >
+                      <rect width={width} height="8" fill={colorForMember(memberForDistrict(mapFeature)[0])} />
+                      {statewideMembers.map((member, index) => (
+                        <g key={`${member.id}-${index}`}>
+                          <rect x={index * 8} width="4" height="8" fill={colorForMember(member)} />
+                          <rect x={index * 8 + 4} width="1" height="8" fill="#f3efe6" opacity=".8" />
+                        </g>
+                      ))}
+                    </pattern>
+                  );
+                })}
               </defs>
               <g ref={zoomLayerRef} transform={`translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
                 <g className="polity-background">
@@ -711,8 +765,10 @@ export default function Home() {
                   <>
                     <strong>{tooltip.feature.properties.statename}{(tooltip.feature.properties.district ?? 0) > 0 ? ` · District ${tooltip.feature.properties.district}` : " · At large"}</strong>
                     <span>U.S. House</span>
-                    {memberForDistrict(tooltip.feature).map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)}</small></div>)}
-                    {!memberForDistrict(tooltip.feature).length && <p>Seat vacant or no member record on this date.</p>}
+                    {tooltipHouseMembers.map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)}</small></div>)}
+                    {!tooltipHouseMembers.length && <p>Seat vacant or no member record on this date.</p>}
+                    {tooltipStatewideAtLargeMembers.length > 0 && <span className="tooltip-subhead">Statewide at large</span>}
+                    {tooltipStatewideAtLargeMembers.map((member) => <div className="house-member statewide-member" key={`statewide-${member.id}`}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)} · statewide seat</small></div>)}
                   </>
                 ))}
               </div>
@@ -724,6 +780,7 @@ export default function Home() {
             {chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
             {hasConfederateGeography && <span><i className="confederate-swatch" />Seceded state</span>}
             {activeReconstructionDistricts.length > 0 && <span><i className="reconstruction-swatch" />Reconstruction military district</span>}
+            {hasMixedDelegation && <span><i className="mixed-delegation-swatch" />Statewide at-large seat</span>}
             <span><i className="territory-swatch" />Territory / other U.S. area</span>
           </div>
         </div>
