@@ -8,9 +8,10 @@ import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
+import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress } from "./preconstitutional.mjs";
 
-type Chamber = "sen" | "rep";
-type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string };
+type Chamber = "sen" | "rep" | "congress";
+type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
 type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; x?: boolean; w?: string | null; a: string; z: string | null };
 type MapProperties = {
   name?: string;
@@ -25,7 +26,7 @@ type MapFeature = Feature<Geometry, MapProperties>;
 type ZoomState = { x: number; y: number; k: number };
 type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; labelOnly: string | null; feature: MapFeature };
 
-const MIN_DATE = "1789-03-04";
+const MIN_DATE = "1776-07-04";
 const DAY = 86_400_000;
 
 const STATE_ABBR: Record<string, string> = {
@@ -41,7 +42,8 @@ const STATE_ABBR: Record<string, string> = {
 };
 const STATE_CODES = new Set(Object.values(STATE_ABBR));
 const TIMELINE_MARKS = [
-  [MIN_DATE, "1789"],
+  [MIN_DATE, "1776"],
+  [FEDERAL_CONGRESS_START, "1789"],
   ["1840-01-01", "1840"],
   ["1865-04-09", "1865"],
   ["1913-03-04", "1913"],
@@ -112,6 +114,7 @@ function fromDay(day: number) {
 }
 
 function congressFor(date: string) {
+  if (date < FEDERAL_CONGRESS_START) return 0;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 1;
   const [year, month, day] = date.split("-").map(Number);
   if (date >= "1935-01-03") {
@@ -137,6 +140,10 @@ function longDate(date: string) {
 function termLabel(congress: number) {
   const suffix = congress % 100 >= 11 && congress % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[congress % 10] ?? "th";
   return `${congress}${suffix} Congress`;
+}
+
+function governmentTermLabel(date: string, congress: number) {
+  return date < FEDERAL_CONGRESS_START ? preconstitutionalCongressLabel(date) : termLabel(congress);
 }
 
 export default function Home() {
@@ -186,10 +193,11 @@ export default function Home() {
   useEffect(() => {
     Promise.all([
       fetch("/data/members.json").then((response) => response.json()),
+      fetch("/data/preconstitutional.json").then((response) => response.json()),
       fetch("/data/officials.json").then((response) => response.json()),
       fetch("/data/historical-polities.json").then((response) => response.json()),
-    ]).then(([memberData, officialData, topology]: [Member[], Official[], Topology]) => {
-      setMembers(memberData);
+    ]).then(([memberData, preconstitutionalData, officialData, topology]: [Member[], Member[], Official[], Topology]) => {
+      setMembers([...preconstitutionalData, ...memberData]);
       setOfficials(officialData);
       const object = Object.values(topology.objects)[0] as GeometryCollection<MapProperties>;
       const collection = feature(topology, object) as FeatureCollection<Geometry, MapProperties>;
@@ -240,7 +248,7 @@ export default function Home() {
   }, []);
 
   const activeMembers = useMemo(
-    () => members.filter((member) => member.t === chamber && (chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
+    () => members.filter((member) => member.t === chamber && (chamber === "congress" || chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
     [members, chamber, date],
   );
   const activeHouseMembers = useMemo(
@@ -261,18 +269,29 @@ export default function Home() {
   }, [activeOfficials]);
   const numericDate = Number(date.replaceAll("-", ""));
   const activePolities = useMemo(
-    () => historicalPolities.filter((polity) => {
-      const start = polity.properties.START_N ?? 0;
-      const end = polity.properties.END_N ?? 20001231;
-      return start <= numericDate && (end >= numericDate || (end === 20001231 && numericDate > end));
-    }),
-    [historicalPolities, numericDate],
+    () => {
+      if (date < "1783-09-03") {
+        return PRECONSTITUTIONAL_STATE_NAMES.flatMap((stateName) => {
+          const earliest = historicalPolities
+            .filter((polity) => polity.properties.TERR_TYPE === "State" && polity.properties.NAME === stateName)
+            .sort((a, b) => (a.properties.START_N ?? 0) - (b.properties.START_N ?? 0))[0];
+          return earliest ? [earliest] : [];
+        });
+      }
+      return historicalPolities.filter((polity) => {
+        const start = polity.properties.START_N ?? 0;
+        const end = polity.properties.END_N ?? 20001231;
+        return start <= numericDate && (end >= numericDate || (end === 20001231 && numericDate > end));
+      });
+    },
+    [date, historicalPolities, numericDate],
   );
   const activeStates = useMemo(
     () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
     [activePolities],
   );
   const houseSeatCapacity = useMemo(() => {
+    if (congress < 1) return 0;
     const [congressStart, congressEnd] = congressDates(congress);
     const terms = members.filter((member) =>
       member.t === "rep" && STATE_CODES.has(member.s) && member.a < congressEnd && member.z > congressStart,
@@ -282,6 +301,16 @@ export default function Home() {
     return congress >= 63 ? Math.max(435, observed) : observed;
   }, [congress, members]);
   const chamberSummary = useMemo(() => {
+    if (chamber === "congress") {
+      const representedStates = new Set(activeMembers.map((member) => member.s)).size;
+      return {
+        seatTotal: 13,
+        vacancies: 13 - representedStates,
+        majority: 7,
+        controlLabel: "One vote per state delegation",
+        segments: [{ label: "States represented", color: "#657a71", count: representedStates }],
+      };
+    }
     const seatTotal = chamber === "sen" ? activeStates.length * 2 : houseSeatCapacity;
     const vacancies = Math.max(0, seatTotal - activeMembers.length);
     const controlCounts = new Map<string, number>();
@@ -330,7 +359,7 @@ export default function Home() {
       return district !== 0 || !houseStatewideAtLargeMembers(activeHouseMembers, state, hasNumberedDistricts).length;
     });
   }, [activeHouseMembers, districts]);
-  const visibleFeatures = chamber === "sen" ? activeStates : visibleDistricts;
+  const visibleFeatures = chamber === "rep" ? visibleDistricts : activeStates;
   const projection = useMemo(() => {
     const geographicFrame = activePolities.length ? activePolities : visibleFeatures;
     if (!geographicFrame.length) return null;
@@ -375,12 +404,18 @@ export default function Home() {
     return activeMembers.filter((member) => member.s === state);
   }, [activeMembers]);
 
+  const delegatesForState = useCallback((mapFeature: MapFeature) => {
+    const state = STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""];
+    return activeMembers.filter((member) => member.s === state).sort((a, b) => a.n.localeCompare(b.n));
+  }, [activeMembers]);
+
   const senateSeatColors = useCallback((mapFeature: MapFeature) => {
     const senators = senatorsForState(mapFeature);
     return [colorForMember(senators[0]), colorForMember(senators[1])];
   }, [senatorsForState]);
 
   const fillFor = useCallback((mapFeature: MapFeature) => {
+    if (chamber === "congress") return delegatesForState(mapFeature).length ? "#657a71" : VACANT_COLOR;
     if (chamber === "rep") {
       return statewideAtLargeMembersForDistrict(mapFeature).length
         ? `url(#${mixedDistrictPatternId(mapFeature)})`
@@ -390,7 +425,7 @@ export default function Home() {
     return colors[0] === colors[1]
       ? colors[0]
       : `url(#split-${STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""]})`;
-  }, [chamber, memberForDistrict, mixedDistrictPatternId, senateSeatColors, statewideAtLargeMembersForDistrict]);
+  }, [chamber, delegatesForState, memberForDistrict, mixedDistrictPatternId, senateSeatColors, statewideAtLargeMembersForDistrict]);
 
   const isConfederateFeature = useCallback((mapFeature: MapFeature) => {
     const stateName = mapFeature.properties.statename ?? mapFeature.properties.NAME ?? mapFeature.properties.name ?? "";
@@ -546,6 +581,7 @@ export default function Home() {
   const changeDate = useCallback((next: string) => {
     if (!isValidDateInRange(next, today)) return false;
     followsTodayRef.current = next === today;
+    setChamber((current) => next < FEDERAL_CONGRESS_START ? "congress" : current === "congress" ? "rep" : current);
     setDate(next);
     setDateDraft(next);
     return true;
@@ -553,6 +589,10 @@ export default function Home() {
 
   const maxDay = toDay(today);
   const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
+  const isPreconstitutional = chamber === "congress";
+  const governmentLabel = governmentTermLabel(date, congress);
+  const presidingOfficer = isPreconstitutional ? presidentOfCongress(date) : null;
+  const representedDelegations = new Set(activeMembers.map((member) => member.s)).size;
   const hasConfederateGeography = activeStates.some(isConfederateFeature);
   const activeReconstructionDistricts = [...new Set(activeStates
     .map((state) => reconstructionDistrictForFeature(state)?.number)
@@ -571,6 +611,9 @@ export default function Home() {
   const hasMixedDelegation = chamber === "rep" && visibleDistricts.some(
     (mapFeature) => statewideAtLargeMembersForDistrict(mapFeature).length > 0,
   );
+  const tooltipDelegates = tooltip && isPreconstitutional && !tooltip.labelOnly
+    ? delegatesForState(tooltip.feature)
+    : [];
 
   return (
     <main>
@@ -601,7 +644,7 @@ export default function Home() {
               />
             </label>
             <button className="step-button" onClick={() => changeDate(fromDay(Math.min(maxDay, toDay(date) + 1)))} aria-label="Next day">→</button>
-            <div className="term-card"><span>{termLabel(congress)}</span><strong>{activeMembers.length || "—"}</strong><small>{chamber === "rep" ? "House seats filled" : "Senate seats filled"}</small></div>
+            <div className="term-card"><span>{governmentLabel}</span><strong>{activeMembers.length || "—"}</strong><small>{isPreconstitutional ? "delegates recorded this year" : chamber === "rep" ? "House seats filled" : "Senate seats filled"}</small></div>
           </div>
 
           <div className="slider-wrap">
@@ -619,41 +662,55 @@ export default function Home() {
 
           <div className="map-toolbar">
             <div className="chamber-tabs" role="tablist" aria-label="Chamber">
-              <button className={chamber === "rep" ? "active" : ""} onClick={() => setChamber("rep")} role="tab">House districts</button>
-              <button className={chamber === "sen" ? "active" : ""} onClick={() => setChamber("sen")} role="tab">Senate</button>
+              {isPreconstitutional ? (
+                <button className="active" role="tab" aria-selected="true">State delegations</button>
+              ) : (
+                <>
+                  <button className={chamber === "rep" ? "active" : ""} onClick={() => setChamber("rep")} role="tab">House districts</button>
+                  <button className={chamber === "sen" ? "active" : ""} onClick={() => setChamber("sen")} role="tab">Senate</button>
+                </>
+              )}
             </div>
-            <p>{chamber === "rep" ? "Hover for members · drag to pan · +/− to zoom" : "Hover for senators · drag to pan · +/− to zoom"}</p>
+            <p>{isPreconstitutional ? "Hover for state delegates · annual rosters · drag to pan" : chamber === "rep" ? "Hover for members · drag to pan · +/− to zoom" : "Hover for senators · drag to pan · +/− to zoom"}</p>
           </div>
 
-          <section className="control-board" aria-label={`${chamber === "rep" ? "House" : "Senate"} party control`}>
+          <section className="control-board" aria-label={isPreconstitutional ? `${governmentLabel} state delegations` : `${chamber === "rep" ? "House" : "Senate"} party control`}>
             <div className="control-heading">
-              <span>{chamber === "rep" ? "HOUSE CONTROL" : "SENATE CONTROL"}</span>
-              <strong>{chamberSummary.controlLabel}</strong>
-              <small>{activeMembers.length} of {chamberSummary.seatTotal} seats filled{chamberSummary.vacancies ? ` · ${chamberSummary.vacancies} vacant` : ""}</small>
+              <span>{isPreconstitutional ? "UNICAMERAL CONGRESS" : chamber === "rep" ? "HOUSE CONTROL" : "SENATE CONTROL"}</span>
+              <strong>{isPreconstitutional ? "Each state delegation held one vote" : chamberSummary.controlLabel}</strong>
+              <small>{isPreconstitutional ? `${activeMembers.length} delegates · ${representedDelegations} states in the annual roster` : `${activeMembers.length} of ${chamberSummary.seatTotal} seats filled${chamberSummary.vacancies ? ` · ${chamberSummary.vacancies} vacant` : ""}`}</small>
             </div>
-            <div className="control-meter" aria-label={`Majority threshold: ${chamberSummary.majority} seats`}>
-              {chamberSummary.segments.map((segment) => (
-                <i
-                  key={segment.label}
-                  style={{ width: `${(segment.count / Math.max(1, chamberSummary.seatTotal)) * 100}%`, background: segment.color }}
-                  title={`${segment.label}: ${segment.count}`}
-                />
-              ))}
-              <span className="majority-marker" style={{ left: `${(chamberSummary.majority / Math.max(1, chamberSummary.seatTotal)) * 100}%` }}><b>MAJORITY {chamberSummary.majority}</b></span>
-            </div>
-            <div className="control-key">
-              {chamberSummary.segments.map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
-            </div>
+            {!isPreconstitutional && <>
+              <div className="control-meter" aria-label={`Majority threshold: ${chamberSummary.majority} seats`}>
+                {chamberSummary.segments.map((segment) => (
+                  <i
+                    key={segment.label}
+                    style={{ width: `${(segment.count / Math.max(1, chamberSummary.seatTotal)) * 100}%`, background: segment.color }}
+                    title={`${segment.label}: ${segment.count}`}
+                  />
+                ))}
+                <span className="majority-marker" style={{ left: `${(chamberSummary.majority / Math.max(1, chamberSummary.seatTotal)) * 100}%` }}><b>MAJORITY {chamberSummary.majority}</b></span>
+              </div>
+              <div className="control-key">
+                {chamberSummary.segments.map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
+              </div>
+            </>}
             <div className="leadership-strip">
-              <span className="leadership-label">LEADERSHIP</span>
-              {chamberLeadership.map((official) => (
-                <div className="leadership-person" key={`${official.t}-${official.id}`}>
-                  <small>{official.t}</small>
-                  <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
-                  {official.p && <span><i style={{ background: colorFor(official.p) }} />{official.p}</span>}
-                </div>
-              ))}
-              {!chamberLeadership.length && <p>No dated chamber leadership record for this date.</p>}
+              <span className="leadership-label">{isPreconstitutional ? "PRESIDING OFFICER" : "LEADERSHIP"}</span>
+              {isPreconstitutional ? (
+                presidingOfficer
+                  ? <div className="leadership-person"><small>President of Congress</small><strong><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong><span>{presidingOfficer.s}</span></div>
+                  : <p>No elected president of Congress is recorded for this date.</p>
+              ) : <>
+                {chamberLeadership.map((official) => (
+                  <div className="leadership-person" key={`${official.t}-${official.id}`}>
+                    <small>{official.t}</small>
+                    <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
+                    {official.p && <span><i style={{ background: colorFor(official.p) }} />{official.p}</span>}
+                  </div>
+                ))}
+                {!chamberLeadership.length && <p>No dated chamber leadership record for this date.</p>}
+              </>}
             </div>
           </section>
 
@@ -693,13 +750,13 @@ export default function Home() {
             onPointerUp={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
             onPointerCancel={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
           >
-            {mapLoading && chamber === "rep" && <div className="map-loading"><span /> Loading {termLabel(congress)} boundaries</div>}
+            {mapLoading && chamber === "rep" && <div className="map-loading"><span /> Loading {governmentLabel} boundaries</div>}
             <div className="zoom-controls" aria-label="Map zoom controls" onPointerDown={(event) => event.stopPropagation()}>
               <button onClick={() => zoomBy(1.5)} aria-label="Zoom in">+</button>
               <button onClick={() => zoomBy(1 / 1.5)} aria-label="Zoom out">−</button>
               <button onClick={resetZoom} aria-label="Reset map view">Reset</button>
             </div>
-            <svg viewBox="0 0 1000 620" role="img" aria-label={`${chamber === "rep" ? "House district" : "Senate"} map on ${longDate(date)}`}>
+            <svg viewBox="0 0 1000 620" role="img" aria-label={`${isPreconstitutional ? "State delegation" : chamber === "rep" ? "House district" : "Senate"} map on ${longDate(date)}`}>
               <defs>
                 {chamber === "sen" && activeStates.map((state) => {
                   const code = STATE_ABBR[state.properties.NAME ?? state.properties.name ?? ""];
@@ -751,7 +808,15 @@ export default function Home() {
                 onWheel={(event) => event.stopPropagation()}
               >
                 {tooltip.labelOnly ? <em>{tooltip.labelOnly}</em> : tooltip.pinned && <button className="tooltip-close" type="button" onClick={closeTooltip} aria-label="Close member details">×</button>}
-                {!tooltip.labelOnly && (chamber === "sen" ? (
+                {!tooltip.labelOnly && (isPreconstitutional ? (
+                  <>
+                    <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>{governmentLabel}</span>
+                    <ul>{tooltipDelegates.map((member) => (
+                      <li key={`${member.id}-${member.year}`}><i className="delegate-dot" /><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a><small>Delegate · recorded in {member.year}</small></li>
+                    ))}</ul>
+                    {!tooltipDelegates.length && <p>No delegate is listed for this state in the annual roster.</p>}
+                  </>
+                ) : chamber === "sen" ? (
                   <>
                     <strong>{tooltip.feature.properties.NAME ?? tooltip.feature.properties.name}</strong><span>U.S. Senate</span>
                     <ul>{[0, 1].map((seat) => {
@@ -776,8 +841,10 @@ export default function Home() {
           </div>
 
           <div className="legend">
-            <span className="legend-title">SEATS FILLED</span>
-            {chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
+            <span className="legend-title">{isPreconstitutional ? "STATE DELEGATIONS" : "SEATS FILLED"}</span>
+            {isPreconstitutional
+              ? <span><i className="delegate-swatch" />Annual delegate roster<b>{representedDelegations}</b></span>
+              : chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
             {hasConfederateGeography && <span><i className="confederate-swatch" />Seceded state</span>}
             {activeReconstructionDistricts.length > 0 && <span><i className="reconstruction-swatch" />Reconstruction military district</span>}
             {hasMixedDelegation && <span><i className="mixed-delegation-swatch" />Statewide at-large seat</span>}
@@ -786,8 +853,20 @@ export default function Home() {
         </div>
 
         <aside className="officials-rail">
-          <div className="rail-heading"><p>GOVERNMENT ON</p><h2>{longDate(date)}</h2><span>{termLabel(congress)}</span></div>
-          {groups.map((group) => {
+          <div className="rail-heading"><p>GOVERNMENT ON</p><h2>{longDate(date)}</h2><span>{governmentLabel}</span></div>
+          {isPreconstitutional ? (
+            <details open>
+              <summary><span>Congress</span><b>{presidingOfficer ? 1 : 0}</b></summary>
+              <div className="official-list">
+                <section className="official-office">
+                  <h3>President of Congress</h3>
+                  {presidingOfficer
+                    ? <div className="official-holder"><span className="official-name"><strong><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong></span><small>{presidingOfficer.s}</small></div>
+                    : <p className="empty">No elected president is recorded for this date.</p>}
+                </section>
+              </div>
+            </details>
+          ) : groups.map((group) => {
             const rows = resolvedActiveOfficials.filter((official) => official.g === group).sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
             const offices = [...Map.groupBy(rows, (official) => official.t).entries()];
             return (
@@ -813,12 +892,12 @@ export default function Home() {
               </details>
             );
           })}
-          <p className="rail-note">Offices appear only after their creation. Vacancies and acting tenures are shown when they are present in the source record.</p>
+          <p className="rail-note">{isPreconstitutional ? "Delegate service is shown at annual resolution because surviving rosters generally record participation by year, not a continuous daily tenure. Each state cast one vote under the Articles." : "Offices appear only after their creation. Vacancies and acting tenures are shown when they are present in the source record."}</p>
         </aside>
       </section>
 
       <footer id="sources">
-        <p><strong>Sources:</strong> UCLA Congressional District Boundaries · Newberry Library · Congress Legislators · U.S. House and Senate historical offices · Wikidata</p>
+        <p><strong>Sources:</strong> U.S. House History · UCLA Congressional District Boundaries · U.S. Census Bureau · Newberry Library · Congress Legislators · Wikidata</p>
         <small>Research interface · vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</small>
       </footer>
     </main>

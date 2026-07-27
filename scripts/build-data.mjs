@@ -202,7 +202,7 @@ async function buildDistricts(selection, force = false) {
           ...active,
           "combine-files",
           "-simplify",
-          congress >= 115 ? "25%" : "0.2%",
+          congress >= 115 ? "25%" : congress >= 103 ? "15%" : "0.2%",
           "keep-shapes",
           "-filter-fields",
           "statename,district,startcong,endcong",

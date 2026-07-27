@@ -5,11 +5,13 @@ import { feature } from "topojson-client";
 import { isConfederateState } from "../app/confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "../app/house-members.mjs";
 import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
+import { preconstitutionalCongressLabel, presidentOfCongress } from "../app/preconstitutional.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
 const officials = JSON.parse(await readFile(new URL("../public/data/officials.json", import.meta.url), "utf8"));
 const topology = JSON.parse(await readFile(new URL("../public/data/historical-polities.json", import.meta.url), "utf8"));
 const polities = feature(topology, Object.values(topology.objects)[0]).features;
+const preconstitutional = JSON.parse(await readFile(new URL("../public/data/preconstitutional.json", import.meta.url), "utf8"));
 
 function activeHouse(date) {
   return members.filter((member) => member.t === "rep" && member.a <= date && member.z > date);
@@ -21,6 +23,21 @@ function activeOfficials(date) {
 
 test("the Second Congress begins with its 69-member elected House", () => {
   assert.equal(activeHouse("1791-03-04").length, 69);
+});
+
+test("the atlas distinguishes the two pre-Constitution national congresses", () => {
+  assert.equal(preconstitutionalCongressLabel("1776-07-04"), "Second Continental Congress");
+  assert.equal(preconstitutionalCongressLabel("1781-03-01"), "Congress of the Confederation");
+  assert.equal(presidentOfCongress("1776-07-04")?.n, "John Hancock");
+  assert.equal(presidentOfCongress("1788-02-01")?.n, "Cyrus Griffin");
+});
+
+test("annual pre-Constitution rosters cover all thirteen state delegations", () => {
+  for (const date of ["1776-07-04", "1781-03-01", "1788-01-01"]) {
+    const active = preconstitutional.filter((delegate) => delegate.a <= date && delegate.z > date);
+    assert.equal(new Set(active.map((delegate) => delegate.s)).size, 13, date);
+    assert.ok(active.every((delegate) => delegate.w.startsWith("https://en.wikipedia.org/wiki/")));
+  }
 });
 
 test("independent senators retain their caucus affiliation", () => {
@@ -162,6 +179,16 @@ test("modern House district maps retain enough geometry for close zooming", asyn
     );
     const coordinateCount = districtTopology.arcs.reduce((total, arc) => total + arc.length, 0);
     assert.ok(coordinateCount > 90_000, `Congress ${congress} has only ${coordinateCount} arc points`);
+  }
+});
+
+test("1990s and 2000s House maps use dense zoomable geometry", async () => {
+  for (let congress = 103; congress <= 112; congress += 1) {
+    const districtTopology = JSON.parse(
+      await readFile(new URL(`../public/data/districts/${congress}.json`, import.meta.url), "utf8"),
+    );
+    const coordinateCount = districtTopology.arcs.reduce((total, arc) => total + arc.length, 0);
+    assert.ok(coordinateCount > 350_000, `Congress ${congress} has only ${coordinateCount} arc points`);
   }
 });
 
