@@ -12,7 +12,7 @@ import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs
 import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 
 type Chamber = "sen" | "rep" | "congress";
-type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
+type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; k?: number | null; p: string; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
 type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; x?: boolean; w?: string | null; a: string; z: string | null };
 type MapProperties = {
   name?: string;
@@ -44,12 +44,11 @@ const STATE_ABBR: Record<string, string> = {
 const STATE_CODES = new Set(Object.values(STATE_ABBR));
 const TIMELINE_MARKS = [
   [MIN_DATE, "1776"],
-  [FEDERAL_CONGRESS_START, "1789"],
-  ["1840-01-01", "1840"],
-  ["1865-04-09", "1865"],
-  ["1913-03-04", "1913"],
-  ["1977-01-20", "1977"],
-  ["2001-01-20", "2001"],
+  ["1800-01-01", "1800"],
+  ["1850-01-01", "1850"],
+  ["1900-01-01", "1900"],
+  ["1950-01-01", "1950"],
+  ["2000-01-01", "2000"],
 ] as const;
 
 const PARTY_COLORS: Record<string, string> = {
@@ -159,6 +158,7 @@ export default function Home() {
   const [earlyVermontRepublic, setEarlyVermontRepublic] = useState<MapFeature | null>(null);
   const [districts, setDistricts] = useState<MapFeature[]>([]);
   const [mapLoading, setMapLoading] = useState(true);
+  const [highDetail, setHighDetail] = useState(false);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
   const [zoom, setZoom] = useState<ZoomState>({ x: 0, y: 0, k: 1 });
   const [isPanning, setIsPanning] = useState(false);
@@ -230,7 +230,8 @@ export default function Home() {
     if (chamber !== "rep") return;
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) setMapLoading(true); });
-    fetch(`/data/districts/${String(congress).padStart(3, "0")}.json`)
+    const detailDirectory = highDetail ? "districts-high" : "districts";
+    fetch(`/data/${detailDirectory}/${String(congress).padStart(3, "0")}.json`)
       .then((response) => response.json())
       .then((topology: Topology) => {
         if (cancelled) return;
@@ -247,7 +248,7 @@ export default function Home() {
         setMapLoading(false);
       });
     return () => { cancelled = true; };
-  }, [chamber, congress]);
+  }, [chamber, congress, highDetail]);
 
   useEffect(() => {
     const reset = { x: 0, y: 0, k: 1 };
@@ -268,10 +269,17 @@ export default function Home() {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
   }, []);
 
-  const activeMembers = useMemo(
-    () => members.filter((member) => member.t === chamber && (chamber === "congress" || chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
-    [members, chamber, date],
-  );
+  const activeMembers = useMemo(() => {
+    const candidates = members.filter((member) => member.t === chamber && (chamber === "congress" || chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date);
+    if (chamber !== "sen") return candidates;
+    const bySeat = new Map<string, Member>();
+    for (const member of candidates) {
+      const key = `${member.s}:${member.k ?? member.id}`;
+      const incumbent = bySeat.get(key);
+      if (!incumbent || member.z > incumbent.z || (member.z === incumbent.z && member.a > incumbent.a)) bySeat.set(key, member);
+    }
+    return [...bySeat.values()].sort((a, b) => a.s.localeCompare(b.s) || (a.k ?? 0) - (b.k ?? 0));
+  }, [members, chamber, date]);
   const activeHouseMembers = useMemo(
     () => members.filter((member) => member.t === "rep" && STATE_CODES.has(member.s) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
     [members, date],
@@ -426,7 +434,7 @@ export default function Home() {
 
   const senatorsForState = useCallback((mapFeature: MapFeature) => {
     const state = STATE_ABBR[mapFeature.properties.NAME ?? mapFeature.properties.name ?? ""];
-    return activeMembers.filter((member) => member.s === state);
+    return activeMembers.filter((member) => member.s === state).sort((a, b) => (a.k ?? 0) - (b.k ?? 0));
   }, [activeMembers]);
 
   const delegatesForState = useCallback((mapFeature: MapFeature) => {
@@ -643,7 +651,7 @@ export default function Home() {
       window.removeEventListener("blur", stopScrubbing);
     };
   }, [changeDate, maxDay]);
-  const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
+  const timelineMarks = [...TIMELINE_MARKS, [today, "2026"]] as const;
   const isPreconstitutional = chamber === "congress";
   const governmentLabel = governmentTermLabel(date, congress);
   const presidingOfficer = isPreconstitutional ? presidentOfCongress(date) : null;
@@ -726,6 +734,14 @@ export default function Home() {
                 </>
               )}
             </div>
+            {chamber === "rep" && !isPreconstitutional && (
+              <button
+                className={`detail-toggle ${highDetail ? "active" : ""}`}
+                type="button"
+                aria-pressed={highDetail}
+                onClick={() => setHighDetail((enabled) => !enabled)}
+              >{highDetail ? "High detail on" : "High detail"}</button>
+            )}
             <p>{isPreconstitutional ? "Hover for delegates · click to pin · ←/→ scrub dates" : chamber === "rep" ? "Hover for members · click to pin · ←/→ scrub dates" : "Hover for senators · click to pin · ←/→ scrub dates"}</p>
           </div>
 
@@ -928,6 +944,7 @@ export default function Home() {
             </details>
           ) : groups.map((group) => {
             const rows = resolvedActiveOfficials.filter((official) => official.g === group).sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
+            if (!rows.length) return null;
             const offices = [...Map.groupBy(rows, (official) => official.t).entries()];
             return (
               <details key={group} open={group !== "Cabinet" || rows.length < 10}>
@@ -947,7 +964,6 @@ export default function Home() {
                       ))}
                     </section>
                   ))}
-                  {!rows.length && <p className="empty">No dated officeholder in the source record.</p>}
                 </div>
               </details>
             );

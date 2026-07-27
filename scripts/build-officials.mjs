@@ -9,10 +9,15 @@ const positions = [
   ["Q4215834", "Secretary of the Treasury", "Cabinet", 11],
   ["Q2419102", "Secretary of War", "Cabinet", 12],
   ["Q735015", "Secretary of Defense", "Cabinet", 12],
+  ["Q940135", "Secretary of the Navy", "Cabinet", 12.1],
+  ["Q1591470", "Secretary of the Army", "Cabinet", 12.2],
+  ["Q261746", "Secretary of the Air Force", "Cabinet", 12.3],
   ["Q636207", "Attorney General", "Cabinet", 13],
+  ["Q1753094", "Postmaster General", "Cabinet", 14],
   ["Q2287650", "Secretary of the Interior", "Cabinet", 14],
   ["Q1029955", "Secretary of Agriculture", "Cabinet", 15],
   ["Q2003296", "Secretary of Commerce", "Cabinet", 16],
+  ["Q11285119", "Secretary of Commerce and Labor", "Cabinet", 16],
   ["Q967750", "Secretary of Labor", "Cabinet", 17],
   ["Q3310559", "Secretary of Health, Education & Welfare", "Cabinet", 18],
   ["Q2305968", "Secretary of Health & Human Services", "Cabinet", 18],
@@ -44,10 +49,15 @@ const created = {
   "Secretary of State": "1789-09-15",
   "Secretary of the Treasury": "1789-09-11",
   "Secretary of War": "1789-08-07",
+  "Secretary of the Navy": "1798-06-18",
+  "Secretary of the Army": "1947-09-18",
+  "Secretary of the Air Force": "1947-09-18",
+  "Postmaster General": "1829-03-09",
   "Attorney General": "1789-09-24",
   "Secretary of the Interior": "1849-03-03",
   "Secretary of Agriculture": "1889-02-15",
   "Secretary of Commerce": "1913-03-04",
+  "Secretary of Commerce and Labor": "1903-02-14",
   "Secretary of Labor": "1913-03-04",
   "Secretary of Health, Education & Welfare": "1953-04-11",
   "Secretary of Health & Human Services": "1980-05-04",
@@ -57,7 +67,7 @@ const created = {
   "Secretary of Education": "1980-05-04",
   "Secretary of Veterans Affairs": "1989-03-15",
   "Secretary of Homeland Security": "2003-01-24",
-  "Secretary of Defense": "1947-09-18",
+  "Secretary of Defense": "1947-09-17",
   "White House Chief of Staff": "1946-01-20",
   "EPA Administrator": "1970-12-02",
   "Director of the Office of Management & Budget": "1970-07-01",
@@ -69,6 +79,116 @@ const created = {
   "Chief Justice": "1789-09-26",
   "Associate Justice": "1789-09-26",
 };
+
+const discontinued = {
+  "Secretary of War": "1947-09-18",
+  "Secretary of the Navy": "1949-08-10",
+  "Secretary of the Army": "1949-08-10",
+  "Secretary of the Air Force": "1949-08-10",
+  "Postmaster General": "1971-07-01",
+  "Secretary of Commerce and Labor": "1913-03-04",
+  "Secretary of Health, Education & Welfare": "1980-05-04",
+};
+
+// The Postal Service historian publishes one continuous roster with exact dates.
+// Postmasters General joined the Cabinet under Andrew Jackson on March 9, 1829,
+// and left it when the Postal Reorganization Act took effect on July 1, 1971.
+const cabinetPostmastersGeneral = [
+  ["William T. Barry", "1829-03-09"],
+  ["Amos Kendall", "1835-05-01"],
+  ["John Milton Niles", "1840-05-19"],
+  ["Francis Granger", "1841-03-06"],
+  ["Charles A. Wickliffe", "1841-09-13"],
+  ["Cave Johnson", "1845-03-05"],
+  ["Jacob Collamer", "1849-03-08"],
+  ["Nathan K. Hall", "1850-07-23"],
+  ["Samuel Dickinson Hubbard", "1852-08-31"],
+  ["James Campbell", "1853-03-08"],
+  ["Aaron V. Brown", "1857-03-06"],
+  ["Joseph Holt", "1859-03-14"],
+  ["Horatio King", "1861-02-12"],
+  ["Montgomery Blair", "1861-03-05"],
+  ["William Dennison Jr.", "1864-09-24"],
+  ["Alexander Randall", "1866-07-25"],
+  ["John Creswell", "1869-03-05"],
+  ["James William Marshall", "1874-07-03"],
+  ["Marshall Jewell", "1874-08-24"],
+  ["James Noble Tyner", "1876-07-12"],
+  ["David M. Key", "1877-03-12"],
+  ["Horace Maynard", "1880-06-02"],
+  ["Thomas Lemuel James", "1881-03-05"],
+  ["Timothy O. Howe", "1881-12-20"],
+  ["Walter Q. Gresham", "1883-04-03"],
+  ["Frank Hatton", "1884-10-14"],
+  ["William Freeman Vilas", "1885-03-06"],
+  ["Donald M. Dickinson", "1888-01-16"],
+  ["John Wanamaker", "1889-03-05"],
+  ["Wilson S. Bissell", "1893-03-06"],
+  ["William Lyne Wilson", "1895-03-01"],
+  ["James Albert Gary", "1897-03-05"],
+  ["Charles Emory Smith", "1898-04-21"],
+  ["Henry Clay Payne", "1902-01-15"],
+  ["Robert Wynne", "1904-10-10"],
+  ["George B. Cortelyou", "1905-03-07"],
+  ["George von Lengerke Meyer", "1907-03-05"],
+  ["Frank Harris Hitchcock", "1909-03-06"],
+  ["Albert S. Burleson", "1913-03-05"],
+  ["Will H. Hays", "1921-03-04"],
+  ["Hubert Work", "1922-03-04"],
+  ["Harry Stewart New", "1923-03-05"],
+  ["Walter Folger Brown", "1929-03-06"],
+  ["James Farley", "1933-03-06"],
+  ["Frank Comerford Walker", "1940-09-11"],
+  ["Robert E. Hannegan", "1945-06-30"],
+  ["Jesse M. Donaldson", "1947-12-16"],
+  ["Arthur Summerfield", "1953-01-21"],
+  ["J. Edward Day", "1961-01-21"],
+  ["John A. Gronouski", "1963-09-30"],
+  ["Lawrence O'Brien", "1965-11-03"],
+  ["W. Marvin Watson", "1968-04-26"],
+  ["Winton M. Blount", "1969-01-22"],
+];
+
+const commerceAndLaborSecretaries = [
+  ["George B. Cortelyou", "1903-02-18", "1904-07-01"],
+  ["Victor H. Metcalf", "1904-07-01", "1906-12-17"],
+  ["Oscar Straus", "1906-12-17", "1909-03-06"],
+  ["Charles Nagel", "1909-03-06", "1913-03-04"],
+];
+
+function wikipediaUrlForName(name) {
+  return `https://en.wikipedia.org/wiki/${encodeURIComponent(name).replaceAll("%20", "_")}`;
+}
+
+function formerCabinetOfficeholders() {
+  const postmasters = cabinetPostmastersGeneral.map(([name, start], index) => ({
+    id: `POSTMASTER-GENERAL-${index + 1}`,
+    n: name,
+    t: "Postmaster General",
+    g: "Cabinet",
+    o: 14,
+    h: null,
+    p: null,
+    x: false,
+    w: wikipediaUrlForName(name),
+    a: start,
+    z: cabinetPostmastersGeneral[index + 1]?.[1] ?? discontinued["Postmaster General"],
+  }));
+  const commerceAndLabor = commerceAndLaborSecretaries.map(([name, start, end], index) => ({
+    id: `COMMERCE-AND-LABOR-${index + 1}`,
+    n: name,
+    t: "Secretary of Commerce and Labor",
+    g: "Cabinet",
+    o: 16,
+    h: null,
+    p: null,
+    x: false,
+    w: wikipediaUrlForName(name),
+    a: start,
+    z: end,
+  }));
+  return [...postmasters, ...commerceAndLabor];
+}
 
 const presidentParties = new Map(Object.entries({
   "George Washington": "Independent",
@@ -359,15 +479,24 @@ let officials = bindings.map((row) => {
 }).filter((official) =>
   official.a
   && (!created[official.t] || official.a >= created[official.t])
+  && (!discontinued[official.t] || official.a < discontinued[official.t])
   && !falseOfficeClaims.has(`${official.t}|${official.n}`),
 );
+
+for (const official of officials) {
+  const end = discontinued[official.t];
+  if (end && (!official.z || official.z > end)) official.z = end;
+}
 
 officials = officials.filter((official) => ![
   "Senate majority leader",
   "Senate minority leader",
   "House majority leader",
   "House minority leader",
+  "Postmaster General",
+  "Secretary of Commerce and Labor",
 ].includes(official.t));
+officials.push(...formerCabinetOfficeholders());
 officials.push(...await senateFloorLeaders());
 officials.push(...await houseFloorLeaders(legislators));
 

@@ -18,6 +18,10 @@ function activeHouse(date) {
   return members.filter((member) => member.t === "rep" && member.a <= date && member.z > date);
 }
 
+function activeSenate(date, state) {
+  return members.filter((member) => member.t === "sen" && member.s === state && member.a <= date && member.z > date);
+}
+
 function activeOfficials(date) {
   return officials.filter((official) => official.a <= date && (!official.z || official.z > date));
 }
@@ -76,6 +80,15 @@ test("a Senate vacancy remains visible until an appointed successor takes office
   assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham", "Tim Scott"]);
 });
 
+test("regular Senate terms begin on March 4 rather than the delayed session opening", () => {
+  assert.deepEqual(activeSenate("1861-06-01", "NH").map((member) => member.k).sort(), [2, 3]);
+  assert.deepEqual(activeSenate("1863-06-01", "CA").map((member) => member.k).sort(), [1, 3]);
+  assert.deepEqual(activeSenate("1875-06-01", "NY").map((member) => member.k).sort(), [1, 3]);
+  assert.equal(members.find((member) => member.n === "Edgar Cowan" && member.t === "sen")?.a, "1861-03-04");
+  assert.equal(members.find((member) => member.n === "John Conness" && member.t === "sen")?.a, "1863-03-04");
+  assert.equal(members.find((member) => member.n === "Francis Kernan" && member.t === "sen")?.a, "1875-03-04");
+});
+
 test("Cabinet offices do not appear before their creation and have one active holder", () => {
   assert.equal(activeOfficials("1800-01-01").some((official) => official.t === "Secretary of Agriculture"), false);
   assert.equal(activeOfficials("1970-01-01").some((official) => official.t === "Secretary of Energy"), false);
@@ -83,6 +96,14 @@ test("Cabinet offices do not appear before their creation and have one active ho
   const byTitle = Map.groupBy(currentCabinet, (official) => official.t);
   assert.equal([...byTitle.values()].every((holders) => holders.length === 1), true);
   assert.deepEqual(byTitle.get("Attorney General")?.map((official) => official.n), ["Todd Blanche"]);
+});
+
+test("former Cabinet departments appear only during their historical Cabinet periods", () => {
+  assert.equal(activeOfficials("1800-01-01").find((official) => official.t === "Secretary of the Navy")?.n, "Benjamin Stoddert");
+  assert.equal(activeOfficials("1830-01-01").find((official) => official.t === "Postmaster General")?.n, "William T. Barry");
+  assert.equal(activeOfficials("1905-01-01").find((official) => official.t === "Secretary of Commerce and Labor")?.n, "Victor H. Metcalf");
+  assert.equal(activeOfficials("1970-01-01").find((official) => official.t === "Postmaster General")?.n, "Winton M. Blount");
+  assert.equal(activeOfficials("1972-01-01").some((official) => official.t === "Postmaster General"), false);
 });
 
 test("Cabinet-level offices appear only after their posts were created", () => {
@@ -188,24 +209,26 @@ test("postwar Reconstruction overlays persist until state readmission", () => {
   assert.equal(reconstructionDistrictForState("GA", "1870-07-15"), null);
 });
 
-test("modern House district maps retain enough geometry for close zooming", async () => {
-  for (const congress of [115, 116, 117, 118, 119]) {
+test("default modern House maps use a consistent responsive geometry budget", async () => {
+  for (const congress of [98, 103, 112, 115, 116, 117, 118, 119]) {
     const file = String(congress).padStart(3, "0");
     const districtTopology = JSON.parse(
       await readFile(new URL(`../public/data/districts/${file}.json`, import.meta.url), "utf8"),
     );
     const coordinateCount = districtTopology.arcs.reduce((total, arc) => total + arc.length, 0);
-    assert.ok(coordinateCount > 90_000, `Congress ${congress} has only ${coordinateCount} arc points`);
+    assert.ok(coordinateCount > 80_000, `Congress ${congress} has only ${coordinateCount} standard arc points`);
+    assert.ok(coordinateCount < 180_000, `Congress ${congress} has ${coordinateCount} standard arc points`);
   }
 });
 
-test("1990s and 2000s House maps use dense zoomable geometry", async () => {
-  for (let congress = 103; congress <= 112; congress += 1) {
-    const districtTopology = JSON.parse(
-      await readFile(new URL(`../public/data/districts/${congress}.json`, import.meta.url), "utf8"),
-    );
-    const coordinateCount = districtTopology.arcs.reduce((total, arc) => total + arc.length, 0);
-    assert.ok(coordinateCount > 350_000, `Congress ${congress} has only ${coordinateCount} arc points`);
+test("power users can load a denser boundary tier for every era", async () => {
+  for (const congress of [1, 90, 103, 112, 119]) {
+    const file = String(congress).padStart(3, "0");
+    const standard = JSON.parse(await readFile(new URL(`../public/data/districts/${file}.json`, import.meta.url), "utf8"));
+    const high = JSON.parse(await readFile(new URL(`../public/data/districts-high/${file}.json`, import.meta.url), "utf8"));
+    const standardCount = standard.arcs.reduce((total, arc) => total + arc.length, 0);
+    const highCount = high.arcs.reduce((total, arc) => total + arc.length, 0);
+    assert.ok(highCount > standardCount * 1.25, `Congress ${congress} high-detail tier is not materially denser`);
   }
 });
 

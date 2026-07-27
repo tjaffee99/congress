@@ -8,6 +8,7 @@ const execFileAsync = promisify(execFile);
 const root = process.cwd();
 const boundaryDir = path.join(root, "work/congressional-district-boundaries/GeoJson");
 const districtOut = path.join(root, "public/data/districts");
+const highDetailDistrictOut = path.join(root, "public/data/districts-high");
 const dataOut = path.join(root, "public/data");
 
 function fullName(person) {
@@ -88,6 +89,7 @@ async function buildMembers() {
         z: override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end),
         sourceStart: term.start,
         sourceEnd: term.end,
+        senateClass: term.class ?? null,
         overridden: Boolean(override),
       };
     }),
@@ -110,10 +112,35 @@ async function buildMembers() {
     }
   }
 
+  const delayedSenateCohorts = Map.groupBy(
+    terms.filter((term) => {
+      if (term.t !== "sen") return false;
+      const match = term.sourceEnd.match(/^(\d{4})-03-03$/);
+      if (!match) return false;
+      const expectedStart = `${Number(match[1]) - 6}-03-04`;
+      return term.sourceStart.slice(0, 4) === expectedStart.slice(0, 4)
+        && term.sourceStart > expectedStart
+        && term.sourceStart < term.sourceEnd;
+    }),
+    (term) => {
+      const endYear = Number(term.sourceEnd.slice(0, 4));
+      return `${endYear - 6}-03-04|${term.sourceStart}`;
+    },
+  );
+  for (const [key, cohort] of delayedSenateCohorts) {
+    if (cohort.length < 3) continue;
+    const [expectedStart] = key.split("|");
+    cohort.forEach((term) => {
+      if (!term.overridden) term.a = expectedStart;
+    });
+  }
+
   const compactTerms = terms.map((term) => {
     const compact = { ...term };
+    if (compact.t === "sen") compact.k = compact.senateClass;
     delete compact.sourceStart;
     delete compact.sourceEnd;
+    delete compact.senateClass;
     delete compact.overridden;
     return compact;
   });
@@ -133,8 +160,24 @@ function districtSelection(value) {
   return Array.from({ length: end - start + 1 }, (_, index) => start + index);
 }
 
-async function buildDistricts(selection, force = false) {
-  await mkdir(districtOut, { recursive: true });
+function districtSimplification(congress, detail) {
+  if (detail === "high") {
+    if (congress <= 97) return "1.2%";
+    if (congress <= 102) return "2%";
+    if (congress <= 112) return "8%";
+    if (congress <= 114) return "5%";
+    return "50%";
+  }
+  if (congress <= 97) return "0.6%";
+  if (congress <= 102) return "0.2%";
+  if (congress <= 112) return "1.5%";
+  if (congress <= 114) return "2%";
+  return "25%";
+}
+
+async function buildDistricts(selection, force = false, detail = "standard") {
+  const outputDir = detail === "high" ? highDetailDistrictOut : districtOut;
+  await mkdir(outputDir, { recursive: true });
   const normalizedDir = path.join(root, "work/normalized-boundaries");
   await mkdir(normalizedDir, { recursive: true });
   const allFiles = (await readdir(boundaryDir))
@@ -184,7 +227,7 @@ async function buildDistricts(selection, force = false) {
   const workers = Array.from({ length: 4 }, async () => {
     while (queue.length) {
       const congress = queue.shift();
-      const output = path.join(districtOut, `${String(congress).padStart(3, "0")}.json`);
+      const output = path.join(outputDir, `${String(congress).padStart(3, "0")}.json`);
       if (!force) {
         try {
           await access(output);
@@ -202,7 +245,7 @@ async function buildDistricts(selection, force = false) {
           ...active,
           "combine-files",
           "-simplify",
-          congress >= 115 ? "25%" : congress >= 103 ? "15%" : "0.2%",
+          districtSimplification(congress, detail),
           "keep-shapes",
           "-filter-fields",
           "statename,district,startcong,endcong",
@@ -213,7 +256,7 @@ async function buildDistricts(selection, force = false) {
         ],
         { maxBuffer: 20 * 1024 * 1024 },
       );
-      console.log(`Congress ${congress}: ${active.length} plans`);
+      console.log(`Congress ${congress} (${detail}): ${active.length} plans`);
     }
   });
   await Promise.all(workers);
@@ -222,5 +265,10 @@ async function buildDistricts(selection, force = false) {
 const mode = process.argv[2] ?? "all";
 const selection = process.argv.find((argument) => /^\d{1,3}(?:-\d{1,3})?$/.test(argument));
 const force = process.argv.includes("--force");
+const requestedDetail = process.argv.find((argument) => argument.startsWith("--detail="))?.split("=")[1] ?? "standard";
+if (!["standard", "high", "both"].includes(requestedDetail)) throw new Error(`Invalid district detail: ${requestedDetail}`);
 if (mode === "members" || mode === "all") await buildMembers();
-if (mode === "districts" || mode === "all") await buildDistricts(selection, force);
+if (mode === "districts" || mode === "all") {
+  if (requestedDetail === "standard" || requestedDetail === "both") await buildDistricts(selection, force, "standard");
+  if (requestedDetail === "high" || requestedDetail === "both") await buildDistricts(selection, force, "high");
+}

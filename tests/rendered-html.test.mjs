@@ -38,9 +38,12 @@ test("the product source contains the historical map and no starter preview", as
   assert.doesNotMatch(page, /scroll to zoom/);
   assert.match(page, /click to pin · ←\/→ scrub dates/);
   assert.match(page, /\[chamber\]\);/);
-  assert.match(page, /\["1977-01-20", "1977"\]/);
+  assert.match(page, /\["1800-01-01", "1800"\]/);
+  assert.match(page, /\["2000-01-01", "2000"\]/);
   assert.match(page, /wikipediaHref/);
   assert.match(page, /Cabinet-level/);
+  assert.match(page, /High detail/);
+  assert.doesNotMatch(page, /No dated officeholder in the source record/);
   assert.match(page, /confederate-state/);
   assert.match(page, /isConfederateFeature/);
   assert.match(page, /reconstructionDistrictForFeature/);
