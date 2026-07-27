@@ -31,8 +31,8 @@ a { color:inherit; text-decoration:none; }
 .map-frame:focus-visible { outline:3px solid var(--rust); outline-offset:3px; }
 .map-frame.is-panning { cursor:grabbing; }
 .map-frame svg { width:100%; height:100%; display:block; }.map-paths path { stroke:#f3efe6; stroke-width:.8; vector-effect:non-scaling-stroke; cursor:crosshair; transition:opacity .12s,filter .12s; }.map-paths:hover path { opacity:.76; }.map-paths path:hover { opacity:1; filter:brightness(1.08); stroke:var(--ink); stroke-width:1.35; }
-.map-paths path.confederate-state { cursor:help; filter:none; opacity:1; stroke:#e1ddd5; }
-.map-paths path.reconstruction-state { cursor:help; filter:saturate(.72); }
+.historical-state-overlays path { cursor:help; vector-effect:non-scaling-stroke; stroke:#eee8de; stroke-width:1.05; }
+.historical-state-overlays path:hover { filter:brightness(1.08); stroke:var(--ink); stroke-width:1.35; }
 .polity-background path { vector-effect:non-scaling-stroke; stroke:#aaa397; stroke-width:1.1; }
 .polity-background .historical-state { fill:#d9d4ca; }
 .polity-background .historical-territory { fill:#e5e1d9; stroke:#b8b1a5; stroke-dasharray:3 2; }
@@ -48,8 +48,8 @@ a { color:inherit; text-decoration:none; }
 .tooltip a:hover,.tooltip a:focus-visible { color:#fff; text-decoration:underline; text-underline-offset:2px; }
 .tooltip li.vacant-seat { color:#d6d0c5; }.tooltip li.vacant-seat i { background:transparent; border:1px solid #918d85; }
 .legend { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; padding-top:12px; color:var(--muted); font-size:9px; }.legend-title { letter-spacing:.13em;font-weight:700;color:var(--ink); }.legend>span:not(.legend-title) { display:flex;align-items:center;gap:5px; }.legend i { width:8px;height:8px;border-radius:50%; }.legend b { color:var(--ink);font-family:var(--font-serif);font-size:12px;margin-left:2px; }
-.legend .confederate-swatch { border-radius:1px; background:#8f918c; }
-.legend .reconstruction-swatch { width:10px; height:10px; border-radius:1px; }.reconstruction-1 { background:#8c7969; }.reconstruction-2 { background:#8798a0; }.reconstruction-3 { background:#9b8f6f; }.reconstruction-4 { background:#788981; }.reconstruction-5 { background:#8d7f91; }
+.legend .confederate-swatch { border-radius:1px; background:#454846; }
+.legend .reconstruction-swatch { width:10px; height:10px; border-radius:1px; background:#6f7471; }
 .legend .territory-swatch { width:10px; height:10px; border-radius:1px; background:#e5e1d9; border:1px dashed #aaa397; }
 .officials-rail { background:#e9e2d6; }.rail-heading { padding:18px 20px 16px; border-bottom:1px solid var(--line); }.rail-heading p { margin:0;color:var(--rust);font-size:8px;font-weight:700;letter-spacing:.16em; }.rail-heading h2 { font-family:var(--font-serif);font-weight:500;font-size:23px;line-height:1.05;margin:5px 0; }.rail-heading>span { color:var(--muted);font-size:9px;text-transform:uppercase;letter-spacing:.09em; }
 .officials-rail details { border-bottom:1px solid var(--line); }.officials-rail summary { list-style:none; padding:12px 20px; display:flex;justify-content:space-between;cursor:pointer;text-transform:uppercase;font-size:9px;font-weight:700;letter-spacing:.1em; }.officials-rail summary::-webkit-details-marker{display:none}.officials-rail summary:before { content:"+";color:var(--rust);margin-right:9px; }.officials-rail details[open] summary:before { content:"−"; }.officials-rail summary span { flex:1; }.officials-rail summary b { color:var(--muted);font-family:var(--font-serif);font-size:12px; }

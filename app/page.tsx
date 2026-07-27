@@ -7,7 +7,7 @@ import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "ge
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict } from "./house-members.mjs";
-import { reconstructionDistrictForState, reconstructionDistrictLabel } from "./reconstruction-district.mjs";
+import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 
 type Chamber = "sen" | "rep";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string };
@@ -58,14 +58,8 @@ const PARTY_COLORS: Record<string, string> = {
 };
 const CAUCUS_COLORS: Record<string, string> = { Democrat: "#91aec2", Republican: "#d99a95" };
 const VACANT_COLOR = "#c8c2b8";
-const CONFEDERATE_COLOR = "#8f918c";
-const RECONSTRUCTION_COLORS: Record<number, string> = {
-  1: "#8c7969",
-  2: "#8798a0",
-  3: "#9b8f6f",
-  4: "#788981",
-  5: "#8d7f91",
-};
+const CONFEDERATE_COLOR = "#454846";
+const RECONSTRUCTION_COLOR = "#6f7471";
 
 function colorFor(party?: string) {
   if (!party) return "#d6d0c5";
@@ -438,25 +432,16 @@ export default function Home() {
 
   const mapPathElements = useMemo(
     () => path ? visibleFeatures.map((mapFeature, index) => {
-      const confederate = isConfederateFeature(mapFeature);
-      const reconstructionDistrict = reconstructionDistrictForFeature(mapFeature);
-      const stateName = mapFeature.properties.statename ?? mapFeature.properties.NAME ?? mapFeature.properties.name ?? "";
-      const labelOnly = confederate
-        ? `${stateName} (seceded)`
-        : reconstructionDistrict
-          ? `${stateName} (${reconstructionDistrict.label})`
-          : null;
       return (
         <path
           key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
           d={path(mapFeature) ?? undefined}
-          className={confederate ? "confederate-state" : reconstructionDistrict ? `reconstruction-state reconstruction-${reconstructionDistrict.number}` : undefined}
-          fill={confederate ? CONFEDERATE_COLOR : reconstructionDistrict ? RECONSTRUCTION_COLORS[reconstructionDistrict.number] : fillFor(mapFeature)}
+          fill={fillFor(mapFeature)}
           onMouseMove={(event) => {
             if (dragRef.current || pinnedTooltipRef.current) return;
-            placeTooltip(event.clientX, event.clientY, mapFeature, false, labelOnly);
+            placeTooltip(event.clientX, event.clientY, mapFeature, false);
           }}
-          onClick={labelOnly ? undefined : (event) => {
+          onClick={(event) => {
             if (didPanRef.current) return;
             event.stopPropagation();
             placeTooltip(event.clientX, event.clientY, mapFeature, true);
@@ -464,7 +449,32 @@ export default function Home() {
         />
       );
     }) : [],
-    [fillFor, isConfederateFeature, path, placeTooltip, reconstructionDistrictForFeature, visibleFeatures],
+    [fillFor, path, placeTooltip, visibleFeatures],
+  );
+
+  const historicalStateOverlayPathElements = useMemo(
+    () => path ? activeStates.flatMap((state) => {
+      const name = state.properties.NAME ?? state.properties.name ?? "";
+      const confederate = isConfederateFeature(state);
+      const reconstructionDistrict = reconstructionDistrictForFeature(state);
+      if (!confederate && !reconstructionDistrict) return [];
+      const labelOnly = confederate
+        ? `${name} (seceded)`
+        : `${name} (${reconstructionDistrict?.label})`;
+      return [(
+        <path
+          key={`historical-overlay-${name}`}
+          d={path(state) ?? undefined}
+          className={confederate ? "confederate-state" : "reconstruction-state"}
+          fill={confederate ? CONFEDERATE_COLOR : RECONSTRUCTION_COLOR}
+          onMouseMove={(event) => {
+            if (dragRef.current || pinnedTooltipRef.current) return;
+            placeTooltip(event.clientX, event.clientY, state, false, labelOnly);
+          }}
+        />
+      )];
+    }) : [],
+    [activeStates, isConfederateFeature, path, placeTooltip, reconstructionDistrictForFeature],
   );
 
   const applyZoom = useCallback((next: ZoomState) => {
@@ -521,7 +531,7 @@ export default function Home() {
 
   const maxDay = toDay(today);
   const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
-  const hasConfederateGeography = visibleFeatures.some(isConfederateFeature);
+  const hasConfederateGeography = activeStates.some(isConfederateFeature);
   const activeReconstructionDistricts = [...new Set(activeStates
     .map((state) => reconstructionDistrictForFeature(state)?.number)
     .filter((number): number is number => Boolean(number)))]
@@ -674,6 +684,9 @@ export default function Home() {
                 <g className="map-paths">
                   {mapPathElements}
                 </g>
+                <g className="historical-state-overlays">
+                  {historicalStateOverlayPathElements}
+                </g>
               </g>
             </svg>
             {tooltip && (
@@ -710,7 +723,7 @@ export default function Home() {
             <span className="legend-title">SEATS FILLED</span>
             {chamberSummary.segments.slice(0, 7).map((segment) => <span key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></span>)}
             {hasConfederateGeography && <span><i className="confederate-swatch" />Seceded state</span>}
-            {activeReconstructionDistricts.map((number) => <span key={`reconstruction-${number}`}><i className={`reconstruction-swatch reconstruction-${number}`} />{reconstructionDistrictLabel(number)}</span>)}
+            {activeReconstructionDistricts.length > 0 && <span><i className="reconstruction-swatch" />Reconstruction military district</span>}
             <span><i className="territory-swatch" />Territory / other U.S. area</span>
           </div>
         </div>

@@ -134,6 +134,8 @@ test("seceded states are disabled only during their Confederate interval", () =>
 test("Reconstruction military districts follow the 1867 act and state readmissions", () => {
   assert.equal(reconstructionDistrictForState("VA", "1867-03-01"), null);
   assert.deepEqual(reconstructionDistrictForState("VA", "1867-03-02"), { number: 1, label: "First Military District" });
+  assert.deepEqual(reconstructionDistrictForState("LA", "1867-03-02"), { number: 5, label: "Fifth Military District" });
+  assert.deepEqual(reconstructionDistrictForState("TX", "1867-03-02"), { number: 5, label: "Fifth Military District" });
   assert.equal(reconstructionDistrictForState("TN", "1867-06-01"), null);
   assert.equal(reconstructionDistrictForState("NC", "1868-06-25"), null);
   assert.deepEqual(reconstructionDistrictForState("MS", "1869-01-01"), { number: 4, label: "Fourth Military District" });
