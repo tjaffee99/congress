@@ -2,13 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { geoAlbersUsa, geoPath } from "d3-geo";
-import { feature } from "topojson-client";
+import { feature, merge } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
-import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress } from "./preconstitutional.mjs";
+import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
+import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 
 type Chamber = "sen" | "rep" | "congress";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; p: string; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
@@ -154,6 +155,8 @@ export default function Home() {
   const [members, setMembers] = useState<Member[]>([]);
   const [officials, setOfficials] = useState<Official[]>([]);
   const [historicalPolities, setHistoricalPolities] = useState<MapFeature[]>([]);
+  const [preRepublicNewYork, setPreRepublicNewYork] = useState<MapFeature | null>(null);
+  const [earlyVermontRepublic, setEarlyVermontRepublic] = useState<MapFeature | null>(null);
   const [districts, setDistricts] = useState<MapFeature[]>([]);
   const [mapLoading, setMapLoading] = useState(true);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
@@ -174,6 +177,8 @@ export default function Home() {
   const followsTodayRef = useRef(true);
   const pinnedTooltipRef = useRef(false);
   const didPanRef = useRef(false);
+  const dateRef = useRef(date);
+  const heldArrowRef = useRef<{ key: "ArrowLeft" | "ArrowRight"; startedAt: number } | null>(null);
   const congress = congressFor(date);
 
   useEffect(() => {
@@ -202,6 +207,22 @@ export default function Home() {
       const object = Object.values(topology.objects)[0] as GeometryCollection<MapProperties>;
       const collection = feature(topology, object) as FeatureCollection<Geometry, MapProperties>;
       setHistoricalPolities(collection.features);
+      const earliestGeometry = (name: string) => object.geometries
+        .filter((geometry) => geometry.properties?.NAME === name)
+        .sort((a, b) => (a.properties?.START_N ?? 0) - (b.properties?.START_N ?? 0))[0];
+      const newYorkGeometry = earliestGeometry("New York");
+      const vermontGeometry = earliestGeometry("Vermont Republic");
+      const vermontFeature = collection.features
+        .filter((mapFeature) => mapFeature.properties.NAME === "Vermont Republic")
+        .sort((a, b) => (a.properties.START_N ?? 0) - (b.properties.START_N ?? 0))[0];
+      if (newYorkGeometry && vermontGeometry) {
+        setPreRepublicNewYork({
+          type: "Feature",
+          properties: { NAME: "New York", TERR_TYPE: "State", START_N: 17760704, END_N: 17770114 },
+          geometry: merge(topology, [newYorkGeometry, vermontGeometry]) as Geometry,
+        });
+      }
+      if (vermontFeature) setEarlyVermontRepublic(vermontFeature);
     });
   }, []);
 
@@ -271,12 +292,16 @@ export default function Home() {
   const activePolities = useMemo(
     () => {
       if (date < "1783-09-03") {
-        return PRECONSTITUTIONAL_STATE_NAMES.flatMap((stateName) => {
+        const originalStates = PRECONSTITUTIONAL_STATE_NAMES.flatMap((stateName) => {
+          if (stateName === "New York" && vermontPolityForDate(date) === "New York" && preRepublicNewYork) return [preRepublicNewYork];
           const earliest = historicalPolities
             .filter((polity) => polity.properties.TERR_TYPE === "State" && polity.properties.NAME === stateName)
             .sort((a, b) => (a.properties.START_N ?? 0) - (b.properties.START_N ?? 0))[0];
           return earliest ? [earliest] : [];
         });
+        return vermontPolityForDate(date) === "Vermont Republic" && earlyVermontRepublic
+          ? [...originalStates, earlyVermontRepublic]
+          : originalStates;
       }
       return historicalPolities.filter((polity) => {
         const start = polity.properties.START_N ?? 0;
@@ -284,7 +309,7 @@ export default function Home() {
         return start <= numericDate && (end >= numericDate || (end === 20001231 && numericDate > end));
       });
     },
-    [date, historicalPolities, numericDate],
+    [date, earlyVermontRepublic, historicalPolities, numericDate, preRepublicNewYork],
   );
   const activeStates = useMemo(
     () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
@@ -448,18 +473,20 @@ export default function Home() {
     const pointerX = clientX - rect.left;
     const pointerY = clientY - rect.top;
     const cardWidth = Math.min(220, rect.width - 16);
-    const preferredHeight = Math.min(190, rect.height - 16);
+    const preferredHeight = pinned ? rect.height - 16 : Math.min(190, rect.height - 16);
     const x = pointerX + 12 + cardWidth <= rect.width - 8
       ? pointerX + 12
       : Math.max(8, pointerX - cardWidth - 12);
-    const y = pointerY + 12 + preferredHeight <= rect.height - 8
-      ? pointerY + 12
-      : Math.max(8, pointerY - preferredHeight - 12);
+    const y = pinned
+      ? 8
+      : pointerY + 12 + preferredHeight <= rect.height - 8
+        ? pointerY + 12
+        : Math.max(8, pointerY - preferredHeight - 12);
     pinnedTooltipRef.current = pinned;
     setTooltip({
       x,
       y,
-      maxHeight: Math.max(60, rect.height - y - 8),
+      maxHeight: pinned ? Math.max(60, rect.height - 16) : Math.max(60, rect.height - y - 8),
       pinned,
       labelOnly,
       feature: mapFeature,
@@ -564,7 +591,7 @@ export default function Home() {
     else if (event.key === "+" || event.key === "=") zoomBy(1.5);
     else if (event.key === "-" || event.key === "_") zoomBy(1 / 1.5);
     else if (event.key === "0") resetZoom();
-    else if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+    else if (["ArrowUp", "ArrowDown"].includes(event.key) || (event.shiftKey && ["ArrowLeft", "ArrowRight"].includes(event.key))) {
       const current = zoomRef.current;
       const distance = 45;
       const next = {
@@ -581,6 +608,7 @@ export default function Home() {
   const changeDate = useCallback((next: string) => {
     if (!isValidDateInRange(next, today)) return false;
     followsTodayRef.current = next === today;
+    dateRef.current = next;
     setChamber((current) => next < FEDERAL_CONGRESS_START ? "congress" : current === "congress" ? "rep" : current);
     setDate(next);
     setDateDraft(next);
@@ -588,6 +616,33 @@ export default function Home() {
   }, [today]);
 
   const maxDay = toDay(today);
+  dateRef.current = date;
+  useEffect(() => {
+    const stopScrubbing = (event?: globalThis.KeyboardEvent) => {
+      if (!event || heldArrowRef.current?.key === event.key) heldArrowRef.current = null;
+    };
+    const scrubDate = (event: globalThis.KeyboardEvent) => {
+      if ((event.key !== "ArrowLeft" && event.key !== "ArrowRight") || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || isEditableKeyboardTarget(event.target)) return;
+      const key = event.key as "ArrowLeft" | "ArrowRight";
+      const now = performance.now();
+      if (!heldArrowRef.current || heldArrowRef.current.key !== key || !event.repeat) {
+        heldArrowRef.current = { key, startedAt: now };
+      }
+      const heldFor = now - heldArrowRef.current.startedAt;
+      const step = event.repeat ? scrubStepForDuration(heldFor) : 1;
+      const direction = key === "ArrowLeft" ? -1 : 1;
+      changeDate(fromDay(Math.max(0, Math.min(maxDay, toDay(dateRef.current) + direction * step))));
+      event.preventDefault();
+    };
+    window.addEventListener("keydown", scrubDate);
+    window.addEventListener("keyup", stopScrubbing);
+    window.addEventListener("blur", stopScrubbing);
+    return () => {
+      window.removeEventListener("keydown", scrubDate);
+      window.removeEventListener("keyup", stopScrubbing);
+      window.removeEventListener("blur", stopScrubbing);
+    };
+  }, [changeDate, maxDay]);
   const timelineMarks = [...TIMELINE_MARKS, [today, "Today"]] as const;
   const isPreconstitutional = chamber === "congress";
   const governmentLabel = governmentTermLabel(date, congress);
@@ -671,7 +726,7 @@ export default function Home() {
                 </>
               )}
             </div>
-            <p>{isPreconstitutional ? "Hover for state delegates · annual rosters · drag to pan" : chamber === "rep" ? "Hover for members · drag to pan · +/− to zoom" : "Hover for senators · drag to pan · +/− to zoom"}</p>
+            <p>{isPreconstitutional ? "Hover for delegates · click to pin · ←/→ scrub dates" : chamber === "rep" ? "Hover for members · click to pin · ←/→ scrub dates" : "Hover for senators · click to pin · ←/→ scrub dates"}</p>
           </div>
 
           <section className="control-board" aria-label={isPreconstitutional ? `${governmentLabel} state delegations` : `${chamber === "rep" ? "House" : "Senate"} party control`}>
@@ -719,7 +774,7 @@ export default function Home() {
             ref={mapRef}
             role="region"
             tabIndex={0}
-            aria-label="Interactive map. Drag to pan; use plus and minus to zoom; use arrow keys to pan; press zero to reset."
+            aria-label="Interactive map. Click a state or district to pin its details. Drag to pan; use plus and minus to zoom; use left and right arrows to scrub dates; use shift plus left or right and the up or down arrows to pan; press zero to reset."
             onKeyDown={handleMapKeyDown}
             onMouseLeave={() => { if (!pinnedTooltipRef.current) setTooltip(null); }}
             onPointerDown={(event) => {
@@ -804,7 +859,12 @@ export default function Home() {
               <div
                 className={`tooltip ${tooltip.pinned ? "is-pinned" : ""}${tooltip.labelOnly ? " is-geography" : ""}`}
                 style={{ left: tooltip.x, top: tooltip.y, maxHeight: tooltip.maxHeight }}
+                role={tooltip.pinned ? "dialog" : undefined}
+                tabIndex={tooltip.pinned ? 0 : undefined}
                 onPointerDown={(event) => event.stopPropagation()}
+                onPointerMove={(event) => event.stopPropagation()}
+                onPointerUp={(event) => event.stopPropagation()}
+                onClick={(event) => event.stopPropagation()}
                 onWheel={(event) => event.stopPropagation()}
               >
                 {tooltip.labelOnly ? <em>{tooltip.labelOnly}</em> : tooltip.pinned && <button className="tooltip-close" type="button" onClick={closeTooltip} aria-label="Close member details">×</button>}

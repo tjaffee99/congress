@@ -36,7 +36,7 @@ test("the product source contains the historical map and no starter preview", as
 
   assert.match(page, /historical-polities\.json/);
   assert.doesNotMatch(page, /scroll to zoom/);
-  assert.match(page, /drag to pan · \+\/− to zoom/);
+  assert.match(page, /click to pin · ←\/→ scrub dates/);
   assert.match(page, /\[chamber\]\);/);
   assert.match(page, /\["1977-01-20", "1977"\]/);
   assert.match(page, /wikipediaHref/);

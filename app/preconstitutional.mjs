@@ -1,5 +1,10 @@
 export const FEDERAL_CONGRESS_START = "1789-03-04";
 export const CONFEDERATION_CONGRESS_START = "1781-03-01";
+export const VERMONT_REPUBLIC_START = "1777-01-15";
+
+export function vermontPolityForDate(date) {
+  return date < VERMONT_REPUBLIC_START ? "New York" : "Vermont Republic";
+}
 
 export const PRECONSTITUTIONAL_STATE_NAMES = [
   "Connecticut", "Delaware", "Georgia", "Maryland", "Massachusetts", "New Hampshire",

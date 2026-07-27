@@ -5,7 +5,8 @@ import { feature } from "topojson-client";
 import { isConfederateState } from "../app/confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "../app/house-members.mjs";
 import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
-import { preconstitutionalCongressLabel, presidentOfCongress } from "../app/preconstitutional.mjs";
+import { isEditableKeyboardTarget, scrubStepForDuration } from "../app/date-scrub.mjs";
+import { preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "../app/preconstitutional.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
 const officials = JSON.parse(await readFile(new URL("../public/data/officials.json", import.meta.url), "utf8"));
@@ -38,6 +39,22 @@ test("annual pre-Constitution rosters cover all thirteen state delegations", () 
     assert.equal(new Set(active.map((delegate) => delegate.s)).size, 13, date);
     assert.ok(active.every((delegate) => delegate.w.startsWith("https://en.wikipedia.org/wiki/")));
   }
+});
+
+test("Vermont is mapped with New York until the Vermont Republic declared independence", () => {
+  assert.equal(vermontPolityForDate("1776-07-04"), "New York");
+  assert.equal(vermontPolityForDate("1777-01-14"), "New York");
+  assert.equal(vermontPolityForDate("1777-01-15"), "Vermont Republic");
+});
+
+test("held left and right arrows accelerate historical date scrubbing", () => {
+  assert.equal(scrubStepForDuration(0), 1);
+  assert.equal(scrubStepForDuration(1_000), 2);
+  assert.equal(scrubStepForDuration(2_000), 5);
+  assert.equal(scrubStepForDuration(4_000), 14);
+  assert.equal(scrubStepForDuration(8_000), 45);
+  assert.equal(isEditableKeyboardTarget({ tagName: "INPUT" }), true);
+  assert.equal(isEditableKeyboardTarget({ tagName: "DIV", isContentEditable: false }), false);
 });
 
 test("independent senators retain their caucus affiliation", () => {
