@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { feature } from "topojson-client";
 import { isConfederateState } from "../app/confederate-state.mjs";
-import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "../app/house-members.mjs";
+import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "../app/house-members.mjs";
 import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "../app/date-scrub.mjs";
 import { preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "../app/preconstitutional.mjs";
@@ -315,6 +315,17 @@ test("statewide at-large members supplement rather than replace numbered distric
   assert.deepEqual(houseMembersForDistrict(delegation, "IL", 1, true).map((member) => member.n), ["District member"]);
   assert.deepEqual(houseStatewideAtLargeMembers(delegation, "IL", true).map((member) => member.n), ["Statewide member"]);
   assert.deepEqual(houseStatewideAtLargeMembers(delegation, "IL", false), []);
+});
+
+test("Alabama's 1963 all-at-large delegation receives a statewide map fallback", async () => {
+  const districtTopology = JSON.parse(await readFile(new URL("../public/data/districts/088.json", import.meta.url), "utf8"));
+  const sourceStates = new Set(Object.values(districtTopology.objects)
+    .flatMap((object) => object.geometries ?? [])
+    .map((geometry) => geometry.properties?.statename)
+    .filter(Boolean));
+  assert.equal(sourceStates.has("Alabama"), false);
+  const fallbackStates = houseStatesNeedingAtLargeFallback(activeHouse("1963-06-01"), new Set());
+  assert.equal(fallbackStates.has("AL"), true);
 });
 
 test("Pennsylvania district 14 shows McCulloch, not his deceased predecessor, in November 1840", () => {

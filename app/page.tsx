@@ -6,7 +6,7 @@ import { feature, merge } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
-import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "./house-members.mjs";
+import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
 import { clampZoom, isLikelyMouseWheel } from "./map-input.mjs";
@@ -508,7 +508,24 @@ export default function Home() {
       return district !== 0 || !houseStatewideAtLargeMembers(activeHouseMembers, state, hasNumberedDistricts).length;
     });
   }, [activeHouseMembers, districts]);
-  const visibleFeatures = chamber === "rep" ? visibleDistricts : activeStates;
+  const atLargeFallbackDistricts = useMemo(() => {
+    const statesWithBoundary = new Set(
+      districts
+        .map((mapFeature) => STATE_ABBR[mapFeature.properties.statename ?? ""])
+        .filter((state): state is string => Boolean(state)),
+    );
+    const fallbackStates = houseStatesNeedingAtLargeFallback(activeHouseMembers, statesWithBoundary);
+    return activeStates.flatMap((state) => {
+      const stateName = state.properties.NAME ?? state.properties.name;
+      if (!stateName || !fallbackStates.has(STATE_ABBR[stateName])) return [];
+      return [{ ...state, properties: { ...state.properties, statename: stateName, district: 0 } }];
+    });
+  }, [activeHouseMembers, activeStates, districts]);
+  const houseMapFeatures = useMemo(
+    () => [...visibleDistricts, ...atLargeFallbackDistricts],
+    [atLargeFallbackDistricts, visibleDistricts],
+  );
+  const visibleFeatures = chamber === "rep" ? houseMapFeatures : activeStates;
   const projectionFrame = useMemo(
     () => historicalPolities.filter((polity) => polity.properties.TERR_TYPE === "State" && polity.properties.END_N === 20001231),
     [historicalPolities],
