@@ -28,11 +28,12 @@ test("server-renders the finished American Atlas shell", async () => {
 });
 
 test("the product source contains the historical map and no starter preview", async () => {
-  const [page, cabinetOffices, layout, packageJson] = await Promise.all([
+  const [page, cabinetOffices, layout, packageJson, socialPreview] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/cabinet-offices.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
+    readFile(new URL("../public/american-atlas-social-2026.png", import.meta.url)),
   ]);
 
   assert.match(page, /historical-polities\.json/);
@@ -92,6 +93,11 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Unfilled Senate seat/);
   assert.doesNotMatch(page, /className="portrait"|initials\(/);
   assert.match(layout, /American Atlas/);
+  assert.match(layout, /metadataBase: new URL\("https:\/\/americanatlas\.us"\)/);
+  assert.match(layout, /american-atlas-social-2026\.png/);
+  assert.match(layout, /card: "summary_large_image"/);
+  assert.equal(socialPreview.readUInt32BE(16), 1200);
+  assert.equal(socialPreview.readUInt32BE(20), 630);
   assert.match(cabinetOffices, /Postmaster General/);
   assert.match(cabinetOffices, /Director of National Drug Control Policy/);
   assert.match(cabinetOffices, /FEMA Administrator/);
