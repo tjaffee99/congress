@@ -10,7 +10,7 @@ import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLa
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
 import { clampZoom, isLikelyMouseWheel } from "./map-input.mjs";
-import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
+import { CONFEDERATION_CONGRESS_START, FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 import { officialOfficesForDate } from "./cabinet-offices.mjs";
 
 type Chamber = "sen" | "rep" | "congress";
@@ -201,13 +201,23 @@ function longDate(date: string) {
     .format(new Date(`${date}T00:00:00Z`));
 }
 
-function termLabel(congress: number) {
+function congressOrdinal(congress: number) {
   const suffix = congress % 100 >= 11 && congress % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[congress % 10] ?? "th";
-  return `${congress}${suffix} Congress`;
+  return `${congress}${suffix}`;
+}
+
+function termLabel(congress: number) {
+  return `${congressOrdinal(congress)} Congress`;
 }
 
 function governmentTermLabel(date: string, congress: number) {
   return date < FEDERAL_CONGRESS_START ? preconstitutionalCongressLabel(date) : termLabel(congress);
+}
+
+function governmentTermWikipediaHref(date: string, congress: number) {
+  if (date < CONFEDERATION_CONGRESS_START) return "https://en.wikipedia.org/wiki/Second_Continental_Congress";
+  if (date < FEDERAL_CONGRESS_START) return "https://en.wikipedia.org/wiki/Congress_of_the_Confederation";
+  return `https://en.wikipedia.org/wiki/${congressOrdinal(congress)}_United_States_Congress`;
 }
 
 export default function Home() {
@@ -1157,7 +1167,7 @@ export default function Home() {
         </div>
 
         <aside className="officials-rail">
-          <div className="rail-heading"><p>GOVERNMENT ON</p><h2>{longDate(date)}</h2><span>{governmentLabel}</span></div>
+          <div className="rail-heading"><p>GOVERNMENT ON</p><h2>{longDate(date)}</h2><a className="congress-link" href={governmentTermWikipediaHref(date, congress)} target="_blank" rel="noreferrer">{governmentLabel}</a></div>
           {isPreconstitutional ? (
             <details open>
               <summary><span>Congress</span><b>{presidingOfficer ? 1 : 0}</b></summary>
