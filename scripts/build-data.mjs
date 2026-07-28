@@ -48,15 +48,19 @@ function parseCsv(text) {
   return values.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])));
 }
 
-function normalizedPartyName(party, start = null) {
-  const normalized = {
+function normalizedPartyName(party, start = null, congress = null) {
+  let normalized = {
     "Democrat-Republican": "Democratic-Republican",
     "Democratic Republican": "Democratic-Republican",
     "Democrat Republican": "Democratic-Republican",
     "Pro-administration": "Pro-Administration",
     "Anti-administration": "Anti-Administration",
     "Anti Mason": "Anti-Masonic",
-    "Anti Jacksonian": "Anti-Jackson",
+    "Anti Masonic": "Anti-Masonic",
+    Adams: "Anti-Jacksonian",
+    Jackson: "Jacksonian",
+    "Anti-Jackson": "Anti-Jacksonian",
+    "Anti Jacksonian": "Anti-Jacksonian",
     "Jacksonian Republican": "Jackson Republican",
     "Ind. Democrat": "Independent Democrat",
     "Ind. Republican": "Independent Republican",
@@ -65,7 +69,10 @@ function normalizedPartyName(party, start = null) {
   // The source roster occasionally applies the modern label retroactively.
   // Before the Republican Party's 1854 founding, a bare "Republican" means
   // the earlier Democratic-Republican affiliation, not the modern party.
-  if (normalized === "Republican" && start && start < "1854-01-01") return "Democratic-Republican";
+  if (normalized === "Republican" && start && start < "1854-01-01") normalized = "Democratic-Republican";
+  if (congress >= 19 && normalized === "Jackson Republican") return "Jacksonian";
+  if (congress >= 19 && normalized === "Crawford Republican") return "Anti-Jacksonian";
+  if (congress >= 19 && congress <= 24 && ["Democrat", "Union Democrat", "Democratic-Republican"].includes(normalized)) return "Jacksonian";
   return normalized;
 }
 
@@ -93,7 +100,7 @@ async function voteviewPartyAffiliations() {
   const [memberRows, partyRows] = await Promise.all(responses.map(async (response) => parseCsv(await response.text())));
   const partyNames = new Map(partyRows.map((row) => [
     `${row.congress}|${row.chamber}|${row.party_code}`,
-    normalizedPartyName(row.party_name),
+    normalizedPartyName(row.party_name, null, Number(row.congress)),
   ]));
   const affiliations = new Map();
   for (const row of memberRows) {
@@ -132,6 +139,7 @@ const TERM_OVERRIDES = new Map([
   ["M000389:1839-12-02:1841-03-03", { start: "1839-11-20", end: "1841-03-04" }],
   ["R000360:1823-12-01:1825-03-03", { start: "1823-03-04", end: "1823-04-21", party: "Crawford Republican" }],
   ["M000079:1831-12-05:1833-03-03", { start: "1831-03-04", end: "1831-04-15", party: "Anti-Jackson" }],
+  ["C000482:1825-12-05:1827-03-03", { party: "Anti-Jacksonian" }],
 ]);
 
 const MANUAL_TERMS = [
@@ -180,7 +188,7 @@ async function buildMembers() {
       const firstCongress = congressForDate(override?.start ?? term.start);
       const lastCongress = congressForDate(previousDay(override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end)));
       const sourceParty = (override?.party || term.party)
-        ? normalizedPartyName(override?.party ?? term.party, term.start)
+        ? normalizedPartyName(override?.party ?? term.party, term.start, firstCongress)
         : (term.district === -1 ? "Nonpartisan" : "Unknown");
       const partiesByCongress = {};
       for (let congress = firstCongress; congress <= lastCongress; congress += 1) {

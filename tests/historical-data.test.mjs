@@ -65,6 +65,21 @@ test("the Eighteenth Congress uses Voteview's contemporary party factions", () =
   ]) assert.equal(parties.has(party), true, party);
 });
 
+test("the post-Eighteenth Congress alignment is Jacksonian versus Anti-Jacksonian", () => {
+  for (const [congress, date] of [
+    [19, "1826-01-01"], [20, "1828-01-01"], [21, "1830-01-01"],
+    [22, "1832-01-01"], [23, "1834-01-01"], [24, "1836-01-01"],
+  ]) {
+    const active = activeHouse(date);
+    const parties = new Set(active.map((member) => partyInCongress(member, congress)));
+    assert.equal(parties.has("Jackson"), false, `${congress}th Congress`);
+    assert.equal(parties.has("Adams"), false, `${congress}th Congress`);
+    assert.equal(parties.has("Democratic-Republican"), false, `${congress}th Congress`);
+    assert.equal(parties.has("Jacksonian"), true, `${congress}th Congress`);
+    assert.equal(parties.has("Anti-Jacksonian"), true, `${congress}th Congress`);
+  }
+});
+
 test("the modern Republican label never appears before the party existed", () => {
   const anachronistic = members.filter((member) =>
     member.a < "1854-01-01"

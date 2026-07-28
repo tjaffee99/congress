@@ -78,13 +78,25 @@ const OFFICIAL_GROUPS = ["Executive", "Cabinet", "Supreme Court"] as const;
 
 const PARTY_COLORS: Record<string, string> = {
   Republican: "#b64c44", Democrat: "#416f91", Independent: "#887c70", Federalist: "#b28a43",
-  "Democratic-Republican": "#5e806f", Whig: "#b58a64", "Anti-Administration": "#80678c",
-  "Pro-Administration": "#b17449", Jackson: "#53778a", Adams: "#a47d47",
-  "Adams-Clay Republican": "#709b7f", "Crawford Republican": "#4d7863", "Jackson Republican": "#3f6f5a",
-  "Adams-Clay Federalist": "#a47d47", "Crawford Federalist": "#8d6f47", "Jackson Federalist": "#c09b59",
-  "Anti-Jackson": "#a77c63", "Anti-Masonic": "#756b8c", Nullifier: "#826c55",
+  "Democratic-Republican": "#5e806f", Whig: "#b58a64", "Anti-Administration": "#789382",
+  "Pro-Administration": "#b17449", Jacksonian: "#53778a", "Anti-Jacksonian": "#a77c63",
+  "Adams-Clay Republican": "#729381", "Crawford Republican": "#5e806f", "Jackson Republican": "#496f5e",
+  "Adams-Clay Federalist": "#c09c5d", "Crawford Federalist": "#ad874a", "Jackson Federalist": "#96743e",
+  "Anti-Masonic": "#756b8c", Nullifier: "#826c55",
   Unionist: "#7d6d59", "Conservative Republican": "#9b574c", Populist: "#807548",
   Progressive: "#59847a", "Free Soil": "#6c8454", "American Labor": "#7b5e72", Unknown: "#aaa398",
+};
+const PARTY_SEGMENT_ORDER: Record<string, number> = {
+  "Democratic-Republican": 10,
+  "Adams-Clay Republican": 11,
+  "Crawford Republican": 12,
+  "Jackson Republican": 13,
+  Federalist: 20,
+  "Adams-Clay Federalist": 21,
+  "Crawford Federalist": 22,
+  "Jackson Federalist": 23,
+  Jacksonian: 10,
+  "Anti-Jacksonian": 20,
 };
 const CAUCUS_COLORS: Record<string, string> = { Democrat: "#91aec2", Republican: "#d99a95" };
 const VACANT_COLOR = "#c8c2b8";
@@ -438,7 +450,8 @@ export default function Home() {
       ? `${partyName} control${tieBreak && leadingSeats < majority ? " · VP tie-break" : ""}`
       : "No party majority";
     const segments = [...visualGroups.values()].sort((a, b) => {
-      const order = (label: string) => label.startsWith("Democrat") ? 0 : label.startsWith("Independent · Democratic") ? 1 : label.startsWith("Independent") ? 2 : label.startsWith("Republican") ? 4 : 3;
+      const order = (label: string) => PARTY_SEGMENT_ORDER[label]
+        ?? (label.startsWith("Democrat") ? 0 : label.startsWith("Independent · Democratic") ? 1 : label.startsWith("Independent") ? 2 : label.startsWith("Republican") ? 40 : 30);
       return order(a.label) - order(b.label);
     });
     if (vacancies) segments.push({ label: "Vacant", color: VACANT_COLOR, count: vacancies });
