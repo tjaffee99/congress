@@ -28,12 +28,13 @@ test("server-renders the finished American Atlas shell", async () => {
 });
 
 test("the product source contains the historical map and no starter preview", async () => {
-  const [page, cabinetOffices, layout, packageJson, socialPreview] = await Promise.all([
+  const [page, cabinetOffices, layout, packageJson, socialPreview, memberData] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/cabinet-offices.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
     readFile(new URL("../public/american-atlas-social-2026.png", import.meta.url)),
+    readFile(new URL("../public/data/members.json", import.meta.url), "utf8"),
   ]);
 
   assert.match(page, /historical-polities\.json/);
@@ -49,6 +50,12 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /label\.startsWith\("Independent"\) \? 20/);
   assert.match(page, /label\.startsWith\("Republican"\) \? 40/);
   assert.match(page, /: 30\);/);
+  const partyColorBlock = page.match(/const PARTY_COLORS:[\s\S]*?\n};/)?.[0] ?? "";
+  const coloredParties = new Set([...partyColorBlock.matchAll(/(?:"([^"]+)"|\b([A-Za-z][A-Za-z -]*))\s*:/g)]
+    .map((match) => match[1] ?? match[2]));
+  const memberParties = new Set(JSON.parse(memberData).flatMap((member) => [member.p, ...Object.values(member.q ?? {})]));
+  assert.deepEqual([...memberParties].filter((party) => !coloredParties.has(party)), []);
+  assert.doesNotMatch(page, /\?\? "#766d66"/);
   assert.match(page, /const OFFICIAL_GROUPS = \["Executive", "Cabinet", "Supreme Court"\]/);
   assert.doesNotMatch(page, /"Cabinet-level", "Supreme Court"/);
   assert.match(page, /High detail/);

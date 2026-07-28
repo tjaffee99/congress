@@ -85,6 +85,17 @@ const PARTY_COLORS: Record<string, string> = {
   "Anti-Masonic": "#756b8c", Nullifier: "#826c55",
   Unionist: "#7d6d59", "Conservative Republican": "#9b574c", Populist: "#807548",
   Progressive: "#59847a", "Free Soil": "#6c8454", "American Labor": "#7b5e72", Unknown: "#aaa398",
+  American: "#9a7042", "Anti-Lecompton Democrat": "#557f9d", Coalitionist: "#86659b",
+  Conservative: "#806641", "Constitutional Unionist": "#6f7752", "Farmer-Labor": "#9a762f",
+  "Free Silver": "#7695ae", "Independent Democrat": "#6d96b3", "Independent Republican": "#cc827b",
+  "Independent Whig": "#c09972", "Law and Order": "#8f6047", Liberal: "#8e5ea4",
+  "Liberal Republican": "#c16f68", Libertarian: "#b49728", Liberty: "#725b9f",
+  "National Greenbacker": "#4d8a61", "New Progressive": "#3f8f86", Nonpartisan: "#a17e43",
+  Opposition: "#8d654f", "Popular Democrat": "#5682a3", "Progressive Republican": "#c4635d",
+  Prohibitionist: "#6c79a0", Readjuster: "#86669a", "Readjuster Democrat": "#697d9f",
+  Silver: "#789eb8", "Silver Republican": "#ad6d77", Socialist: "#a64657",
+  "States Rights": "#9b6247", "Unconditional Unionist": "#667c57", Union: "#738348",
+  "Union Labor": "#a06f31",
 };
 const PARTY_SEGMENT_ORDER: Record<string, number> = {
   "Anti-Administration": 10,
@@ -108,7 +119,10 @@ const RECONSTRUCTION_COLOR = "#6f7471";
 
 function colorFor(party?: string) {
   if (!party) return "#d6d0c5";
-  return PARTY_COLORS[party] ?? "#766d66";
+  if (PARTY_COLORS[party]) return PARTY_COLORS[party];
+  const fallbackPalette = ["#5d849f", "#9a6a45", "#6f8751", "#8a6096", "#b07868", "#4f8b82"];
+  const hash = [...party].reduce((value, character) => ((value * 31) + character.charCodeAt(0)) >>> 0, 0);
+  return fallbackPalette[hash % fallbackPalette.length];
 }
 
 function colorForMember(member?: Member) {

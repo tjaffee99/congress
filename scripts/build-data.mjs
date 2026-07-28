@@ -50,6 +50,7 @@ function parseCsv(text) {
 
 function normalizedPartyName(party, start = null, congress = null) {
   let normalized = {
+    AL: "Popular Democrat",
     "Democrat-Republican": "Democratic-Republican",
     "Democratic Republican": "Democratic-Republican",
     "Democrat Republican": "Democratic-Republican",
