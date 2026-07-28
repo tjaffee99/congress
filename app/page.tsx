@@ -526,23 +526,26 @@ export default function Home() {
     const pointerX = clientX - rect.left;
     const pointerY = clientY - rect.top;
     const cardWidth = Math.min(220, rect.width - 16);
-    const preferredHeight = pinned ? rect.height - 16 : Math.min(190, rect.height - 16);
+    const preferredHeight = Math.min(190, rect.height - 16);
     const x = pointerX + 12 + cardWidth <= rect.width - 8
       ? pointerX + 12
       : Math.max(8, pointerX - cardWidth - 12);
-    const y = pinned
-      ? 8
-      : pointerY + 12 + preferredHeight <= rect.height - 8
-        ? pointerY + 12
-        : Math.max(8, pointerY - preferredHeight - 12);
+    const y = pointerY + 12 + preferredHeight <= rect.height - 8
+      ? pointerY + 12
+      : Math.max(8, pointerY - preferredHeight - 12);
     pinnedTooltipRef.current = pinned;
-    setTooltip({
-      x,
-      y,
-      maxHeight: pinned ? Math.max(60, rect.height - 16) : Math.max(60, rect.height - y - 8),
-      pinned,
-      labelOnly,
-      feature: mapFeature,
+    setTooltip((current) => {
+      const keepCurrentPosition = pinned && current?.feature === mapFeature && !current.labelOnly;
+      const nextX = keepCurrentPosition ? current.x : x;
+      const nextY = keepCurrentPosition ? current.y : y;
+      return {
+        x: nextX,
+        y: nextY,
+        maxHeight: Math.max(60, rect.height - nextY - 8),
+        pinned,
+        labelOnly,
+        feature: mapFeature,
+      };
     });
   }, []);
 
@@ -686,8 +689,6 @@ export default function Home() {
   const handleMapPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== "touch" && event.button !== 0) return;
     didPanRef.current = false;
-    pinnedTooltipRef.current = false;
-    setTooltip(null);
     setIsPanning(false);
     if (event.pointerType === "touch") {
       touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
@@ -853,9 +854,9 @@ export default function Home() {
   return (
     <main>
       <header className="site-header">
-        <a className="brand" href="#atlas" aria-label="American State home">
+        <a className="brand" href="#atlas" aria-label="American Atlas home">
           <span className="brand-mark" aria-hidden="true" />
-          <span><strong>American State</strong><small>A day-by-day atlas of U.S. government</small></span>
+          <span><strong>American Atlas</strong><small>A day-by-day look at US government</small></span>
         </a>
       </header>
 

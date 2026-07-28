@@ -14,13 +14,13 @@ async function render() {
   );
 }
 
-test("server-renders the finished American State atlas shell", async () => {
+test("server-renders the finished American Atlas shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>American State/);
+  assert.match(html, /<title>American Atlas/);
   assert.match(html, /DATE IN VIEW/);
   assert.match(html, /House districts/);
   assert.match(html, /aria-label="Map zoom controls"/);
@@ -51,6 +51,8 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /tooltip\.labelOnly/);
   assert.match(page, /\$\{name\} \(seceded\)/);
   assert.match(page, /pinnedTooltipRef/);
+  assert.match(page, /current\?\.feature === mapFeature/);
+  assert.doesNotMatch(page, /const y = pinned\s*\?\s*8/);
   assert.match(page, /tooltip-close/);
   assert.match(page, /historicalStateOverlayPathElements/);
   assert.match(page, /mixedDistrictPatternId/);
@@ -74,7 +76,7 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Independent · \$\{caucus\} caucus/);
   assert.match(page, /Unfilled Senate seat/);
   assert.doesNotMatch(page, /className="portrait"|initials\(/);
-  assert.match(layout, /American State/);
+  assert.match(layout, /American Atlas/);
   assert.doesNotMatch(page, /SkeletonPreview|_sites-preview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });
