@@ -163,13 +163,15 @@ function districtSelection(value) {
 function districtSimplification(congress, detail) {
   if (detail === "high") {
     if (congress <= 97) return "1.2%";
-    if (congress <= 102) return "2%";
+    if (congress <= 102) return "20%";
+    if (congress <= 107) return "15%";
     if (congress <= 112) return "8%";
     if (congress <= 114) return "5%";
     return "50%";
   }
   if (congress <= 97) return "0.6%";
-  if (congress <= 102) return "0.2%";
+  if (congress <= 102) return "10%";
+  if (congress <= 107) return "8%";
   if (congress <= 112) return "1.5%";
   if (congress <= 114) return "2%";
   return "25%";

@@ -212,14 +212,17 @@ test("postwar Reconstruction overlays persist until state readmission", () => {
 });
 
 test("default modern House maps use a consistent responsive geometry budget", async () => {
-  for (const congress of [98, 103, 112, 115, 116, 117, 118, 119]) {
+  for (const congress of [98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 112, 115, 116, 117, 118, 119]) {
     const file = String(congress).padStart(3, "0");
     const districtTopology = JSON.parse(
       await readFile(new URL(`../public/data/districts/${file}.json`, import.meta.url), "utf8"),
     );
     const coordinateCount = districtTopology.arcs.reduce((total, arc) => total + arc.length, 0);
-    assert.ok(coordinateCount > 80_000, `Congress ${congress} has only ${coordinateCount} standard arc points`);
-    assert.ok(coordinateCount < 180_000, `Congress ${congress} has ${coordinateCount} standard arc points`);
+    const preservesLateCenturyDetail = congress >= 98 && congress <= 107;
+    const minimum = preservesLateCenturyDetail ? 190_000 : 80_000;
+    const maximum = preservesLateCenturyDetail ? 310_000 : 180_000;
+    assert.ok(coordinateCount > minimum, `Congress ${congress} has only ${coordinateCount} standard arc points`);
+    assert.ok(coordinateCount < maximum, `Congress ${congress} has ${coordinateCount} standard arc points`);
   }
 });
 
