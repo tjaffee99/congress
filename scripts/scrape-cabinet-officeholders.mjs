@@ -43,10 +43,17 @@ function decodeHtml(value) {
 }
 
 function wikipediaUrl(href) {
-  if (href.startsWith("https://en.wikipedia.org/")) return href.replaceAll("&amp;", "&");
-  if (href.startsWith("/")) return `https://en.wikipedia.org${href.replaceAll("&amp;", "&")}`;
-  if (href.startsWith("./")) return `https://en.wikipedia.org/wiki/${href.slice(2)}`;
-  return null;
+  let url = null;
+  if (href.startsWith("https://en.wikipedia.org/")) url = href.replaceAll("&amp;", "&");
+  if (href.startsWith("/")) url = `https://en.wikipedia.org${href.replaceAll("&amp;", "&")}`;
+  if (href.startsWith("./")) url = `https://en.wikipedia.org/wiki/${href.slice(2)}`;
+  if (!url) return null;
+  const parsed = new URL(url);
+  if (parsed.searchParams.get("redlink") === "1") {
+    const title = parsed.searchParams.get("title") ?? decodeURIComponent(parsed.pathname.split("/").at(-1) ?? "");
+    return `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(title.replaceAll("_", " "))}`;
+  }
+  return url;
 }
 
 const monthNames = "January|February|March|April|May|June|July|August|September|October|November|December";
