@@ -14,7 +14,7 @@ import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutiona
 
 type Chamber = "sen" | "rep" | "congress";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; k?: number | null; p: string; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
-type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; x?: boolean; w?: string | null; a: string; z: string | null };
+type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; s?: string | null; x?: boolean; w?: string | null; a: string; z: string | null };
 type MapProperties = {
   name?: string;
   statename?: string;
@@ -53,6 +53,24 @@ const TIMELINE_MARKS = [
   ["1950-01-01", "1950"],
   ["2000-01-01", "2000"],
 ] as const;
+
+const LEADERSHIP_OFFICES = {
+  rep: [
+    { title: "Speaker of the House", created: "1789-03-04", order: 40 },
+    { title: "House majority leader", created: "1899-03-04", order: 42 },
+    { title: "House majority whip", created: "1897-03-04", order: 43 },
+    { title: "House minority leader", created: "1899-03-04", order: 44 },
+    { title: "House minority whip", created: "1899-03-04", order: 45 },
+  ],
+  sen: [
+    { title: "President of the Senate", created: "1789-03-04", order: 40 },
+    { title: "President pro tempore", created: "1789-03-04", order: 41 },
+    { title: "Senate majority leader", created: "1893-03-04", order: 42 },
+    { title: "Senate majority whip", created: "1913-05-28", order: 43 },
+    { title: "Senate minority leader", created: "1889-03-04", order: 44 },
+    { title: "Senate minority whip", created: "1915-03-04", order: 45 },
+  ],
+} as const;
 
 const PARTY_COLORS: Record<string, string> = {
   Republican: "#b64c44", Democrat: "#416f91", Independent: "#887c70", Federalist: "#b28a43",
@@ -835,9 +853,13 @@ export default function Home() {
     .filter((number): number is number => Boolean(number)))]
     .sort((a, b) => a - b);
   const groups = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"];
-  const chamberLeadership = resolvedActiveOfficials
-    .filter((official) => official.g === "Congressional leadership" && official.h === chamber)
-    .sort((a, b) => a.o - b.o);
+  const chamberLeadership = chamber === "congress" ? [] : LEADERSHIP_OFFICES[chamber]
+    .filter((office) => office.created <= date)
+    .map((office) => ({
+      ...office,
+      official: resolvedActiveOfficials.find((candidate) => candidate.g === "Congressional leadership" && candidate.h === chamber && candidate.t === office.title) ?? null,
+    }))
+    .sort((a, b) => a.order - b.order);
   const tooltipHouseMembers = tooltip && chamber === "rep" && !tooltip.labelOnly
     ? memberForDistrict(tooltip.feature)
     : [];
@@ -946,11 +968,13 @@ export default function Home() {
                   ? <div className="leadership-person"><small>President of Congress</small><strong><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong><span>{presidingOfficer.s}</span></div>
                   : <p>No elected president of Congress is recorded for this date.</p>
               ) : <>
-                {chamberLeadership.map((official) => (
-                  <div className="leadership-person" key={`${official.t}-${official.id}`}>
-                    <small>{official.t}</small>
-                    <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
-                    {official.p && <span><i style={{ background: colorFor(official.p) }} />{official.p}</span>}
+                {chamberLeadership.map(({ title, official }) => (
+                  <div className="leadership-person" key={title}>
+                    <small>{title}</small>
+                    {official ? <>
+                      <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
+                      {(official.p || official.s) && <span>{official.p && <i style={{ background: colorFor(official.p) }} />}{official.p}{official.p && official.s ? " – " : ""}{official.s}</span>}
+                    </> : <strong className="leadership-vacant"><em>Vacant</em></strong>}
                   </div>
                 ))}
                 {!chamberLeadership.length && <p>No dated chamber leadership record for this date.</p>}

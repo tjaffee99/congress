@@ -73,6 +73,11 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /group === "Supreme Court" \? rows\.length : offices\.length/);
   assert.match(page, /SENATE CONTROL/);
   assert.match(page, /majority-marker/);
+  assert.match(page, /LEADERSHIP_OFFICES/);
+  assert.match(page, /leadership-vacant/);
+  assert.match(page, /House majority whip", created: "1897-03-04"/);
+  assert.match(page, /House majority leader", created: "1899-03-04"/);
+  assert.match(page, /official\.p && official\.s \? " – "/);
   assert.match(page, /Independent · \$\{caucus\} caucus/);
   assert.match(page, /Unfilled Senate seat/);
   assert.doesNotMatch(page, /className="portrait"|initials\(/);

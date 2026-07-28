@@ -164,6 +164,24 @@ test("the atlas has complete top chamber leadership for its initial 2004 snapsho
   );
 });
 
+test("the House Speaker roster preserves real vacancies instead of dropping historical records", () => {
+  assert.equal(activeOfficials("1800-01-01").find((official) => official.t === "Speaker of the House")?.n, "Theodore Sedgwick");
+  assert.equal(activeOfficials("1814-01-18").find((official) => official.t === "Speaker of the House")?.n, "Henry Clay");
+  assert.equal(activeOfficials("1820-11-01").some((official) => official.t === "Speaker of the House"), false);
+  assert.equal(activeOfficials("1876-08-20").some((official) => official.t === "Speaker of the House"), false);
+  assert.equal(activeOfficials("1876-12-04").find((official) => official.t === "Speaker of the House")?.n, "Samuel Jackson Randall");
+  assert.equal(activeOfficials("2023-10-10").some((official) => official.t === "Speaker of the House"), false);
+});
+
+test("every occupied modern congressional leadership card has party and state", () => {
+  for (const date of ["2004-08-23", "2026-07-26"]) {
+    const leadership = activeOfficials(date).filter((official) => official.g === "Congressional leadership");
+    assert.ok(leadership.every((official) => official.p && official.s), date);
+  }
+  const vance = activeOfficials("2026-07-26").find((official) => official.t === "President of the Senate");
+  assert.deepEqual([vance?.p, vance?.s], ["Republican", "OH"]);
+});
+
 test("Senate leadership has no parser-created gaps and includes its constitutional presiding officer", () => {
   for (const date of ["1931-03-04", "1959-01-03", "2004-08-23", "2026-07-26"]) {
     const leadership = activeOfficials(date).filter((official) => official.g === "Congressional leadership" && official.h === "sen");
