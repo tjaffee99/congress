@@ -123,6 +123,8 @@ test("the current Supreme Court contains one chief and eight associate justices"
   const court = activeOfficials("2026-07-26").filter((official) => official.g === "Supreme Court");
   assert.equal(court.filter((official) => official.t === "Chief Justice").length, 1);
   assert.equal(court.filter((official) => official.t === "Associate Justice").length, 8);
+  assert.equal(activeOfficials("1800-01-01").filter((official) => official.g === "Supreme Court").length, 5);
+  assert.equal(court.length, 9);
 });
 
 test("the atlas has complete top chamber leadership for its initial 2004 snapshot", () => {

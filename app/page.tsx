@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { geoAlbersUsa, geoPath } from "d3-geo";
 import { feature, merge } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
@@ -9,6 +9,7 @@ import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
+import { clampZoom, isLikelyMouseWheel } from "./map-input.mjs";
 import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 
 type Chamber = "sen" | "rep" | "congress";
@@ -26,6 +27,8 @@ type MapProperties = {
 type MapFeature = Feature<Geometry, MapProperties>;
 type ZoomState = { x: number; y: number; k: number };
 type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; labelOnly: string | null; feature: MapFeature };
+type PointerPosition = { clientX: number; clientY: number };
+type PinchState = { distance: number; worldX: number; worldY: number; k: number };
 
 const MIN_DATE = "1776-07-04";
 const DAY = 86_400_000;
@@ -151,7 +154,8 @@ export default function Home() {
   const [date, setDate] = useState(currentUsDate);
   const [dateDraft, setDateDraft] = useState(currentUsDate);
   const [chamber, setChamber] = useState<Chamber>("rep");
-  const [members, setMembers] = useState<Member[]>([]);
+  const [federalMembers, setFederalMembers] = useState<Member[]>([]);
+  const [preconstitutionalMembers, setPreconstitutionalMembers] = useState<Member[]>([]);
   const [officials, setOfficials] = useState<Official[]>([]);
   const [historicalPolities, setHistoricalPolities] = useState<MapFeature[]>([]);
   const [preRepublicNewYork, setPreRepublicNewYork] = useState<MapFeature | null>(null);
@@ -166,6 +170,7 @@ export default function Home() {
   const zoomLayerRef = useRef<SVGGElement>(null);
   const zoomRef = useRef<ZoomState>({ x: 0, y: 0, k: 1 });
   const dragRef = useRef<{
+    pointerId: number;
     clientX: number;
     clientY: number;
     x: number;
@@ -173,13 +178,17 @@ export default function Home() {
     scaleX: number;
     scaleY: number;
   } | null>(null);
+  const touchPointersRef = useRef(new Map<number, PointerPosition>());
+  const pinchRef = useRef<PinchState | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const followsTodayRef = useRef(true);
   const pinnedTooltipRef = useRef(false);
   const didPanRef = useRef(false);
   const dateRef = useRef(date);
   const heldArrowRef = useRef<{ key: "ArrowLeft" | "ArrowRight"; startedAt: number } | null>(null);
+  const preconstitutionalRequestRef = useRef(false);
   const congress = congressFor(date);
+  const members = useMemo(() => [...preconstitutionalMembers, ...federalMembers], [federalMembers, preconstitutionalMembers]);
 
   useEffect(() => {
     const refreshToday = () => {
@@ -196,14 +205,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/data/members.json").then((response) => response.json()),
-      fetch("/data/preconstitutional.json").then((response) => response.json()),
-      fetch("/data/officials.json").then((response) => response.json()),
-      fetch("/data/historical-polities.json").then((response) => response.json()),
-    ]).then(([memberData, preconstitutionalData, officialData, topology]: [Member[], Member[], Official[], Topology]) => {
-      setMembers([...preconstitutionalData, ...memberData]);
-      setOfficials(officialData);
+    fetch("/data/members.json").then((response) => response.json()).then((memberData: Member[]) => setFederalMembers(memberData));
+    fetch("/data/officials.json").then((response) => response.json()).then((officialData: Official[]) => setOfficials(officialData));
+    fetch("/data/historical-polities.json").then((response) => response.json()).then((topology: Topology) => {
       const object = Object.values(topology.objects)[0] as GeometryCollection<MapProperties>;
       const collection = feature(topology, object) as FeatureCollection<Geometry, MapProperties>;
       setHistoricalPolities(collection.features);
@@ -225,6 +229,15 @@ export default function Home() {
       if (vermontFeature) setEarlyVermontRepublic(vermontFeature);
     });
   }, []);
+
+  useEffect(() => {
+    if (date >= FEDERAL_CONGRESS_START || preconstitutionalMembers.length || preconstitutionalRequestRef.current) return;
+    preconstitutionalRequestRef.current = true;
+    fetch("/data/preconstitutional.json")
+      .then((response) => response.json())
+      .then((memberData: Member[]) => setPreconstitutionalMembers(memberData))
+      .finally(() => { preconstitutionalRequestRef.current = false; });
+  }, [date, preconstitutionalMembers.length]);
 
   useEffect(() => {
     if (chamber !== "rep") return;
@@ -269,9 +282,33 @@ export default function Home() {
     if (animationFrameRef.current !== null) cancelAnimationFrame(animationFrameRef.current);
   }, []);
 
+  const membersByCongress = useMemo(() => {
+    const house = new Map<number, Member[]>();
+    const senate = new Map<number, Member[]>();
+    for (const member of federalMembers) {
+      if ((member.t !== "rep" && member.t !== "sen") || !STATE_CODES.has(member.s)) continue;
+      const firstCongress = congressFor(member.a);
+      const lastDay = fromDay(Math.max(0, toDay(member.z) - 1));
+      const lastCongress = congressFor(lastDay);
+      const index = member.t === "rep" ? house : senate;
+      for (let term = firstCongress; term <= lastCongress; term += 1) {
+        const bucket = index.get(term) ?? [];
+        bucket.push(member);
+        index.set(term, bucket);
+      }
+    }
+    return { house, senate };
+  }, [federalMembers]);
+  const activeHouseMembers = useMemo(
+    () => (membersByCongress.house.get(congress) ?? []).filter((member) => !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
+    [congress, date, membersByCongress],
+  );
   const activeMembers = useMemo(() => {
-    const candidates = members.filter((member) => member.t === chamber && (chamber === "congress" || chamber === "sen" || STATE_CODES.has(member.s)) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date);
-    if (chamber !== "sen") return candidates;
+    if (chamber === "rep") return activeHouseMembers;
+    if (chamber === "congress") {
+      return preconstitutionalMembers.filter((member) => member.a <= date && member.z > date);
+    }
+    const candidates = (membersByCongress.senate.get(congress) ?? []).filter((member) => !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date);
     const bySeat = new Map<string, Member>();
     for (const member of candidates) {
       const key = `${member.s}:${member.k ?? member.id}`;
@@ -279,11 +316,7 @@ export default function Home() {
       if (!incumbent || member.z > incumbent.z || (member.z === incumbent.z && member.a > incumbent.a)) bySeat.set(key, member);
     }
     return [...bySeat.values()].sort((a, b) => a.s.localeCompare(b.s) || (a.k ?? 0) - (b.k ?? 0));
-  }, [members, chamber, date]);
-  const activeHouseMembers = useMemo(
-    () => members.filter((member) => member.t === "rep" && STATE_CODES.has(member.s) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
-    [members, date],
-  );
+  }, [activeHouseMembers, chamber, congress, date, membersByCongress, preconstitutionalMembers]);
   const activeOfficials = useMemo(
     () => officials.filter((official) => official.a <= date && (!official.z || official.z > date)),
     [officials, date],
@@ -393,13 +426,25 @@ export default function Home() {
     });
   }, [activeHouseMembers, districts]);
   const visibleFeatures = chamber === "rep" ? visibleDistricts : activeStates;
+  const projectionFrame = useMemo(
+    () => historicalPolities.filter((polity) => polity.properties.TERR_TYPE === "State" && polity.properties.END_N === 20001231),
+    [historicalPolities],
+  );
   const projection = useMemo(() => {
-    const geographicFrame = activePolities.length ? activePolities : visibleFeatures;
-    if (!geographicFrame.length) return null;
-    const collection: FeatureCollection<Geometry, GeoJsonProperties> = { type: "FeatureCollection", features: geographicFrame };
+    if (!projectionFrame.length) return null;
+    const collection: FeatureCollection<Geometry, GeoJsonProperties> = { type: "FeatureCollection", features: projectionFrame };
     return geoAlbersUsa().fitExtent([[22, 18], [978, 602]], collection);
-  }, [activePolities, visibleFeatures]);
+  }, [projectionFrame]);
   const path = useMemo(() => projection ? geoPath(projection) : null, [projection]);
+  const pathCache = useMemo(() => ({ generator: path, values: new WeakMap<MapFeature, string>() }), [path]);
+  const pathForFeature = useCallback((mapFeature: MapFeature) => {
+    if (!pathCache.generator) return undefined;
+    const cached = pathCache.values.get(mapFeature);
+    if (cached !== undefined) return cached || undefined;
+    const generated = pathCache.generator(mapFeature) ?? "";
+    pathCache.values.set(mapFeature, generated);
+    return generated || undefined;
+  }, [pathCache]);
 
   const numberedDistrictStates = useMemo(
     () => new Set(
@@ -510,7 +555,7 @@ export default function Home() {
       return (
         <path
           key={`${polity.properties.NAME}-${polity.properties.START_N}-${index}`}
-          d={path(polity) ?? undefined}
+          d={pathForFeature(polity)}
           className={`${isState ? "historical-state" : "historical-territory"}${labelOnly ? " geography-hover" : ""}`}
           onMouseMove={labelOnly ? (event) => {
             if (dragRef.current || pinnedTooltipRef.current) return;
@@ -519,15 +564,19 @@ export default function Home() {
         />
       );
     }) : [],
-    [activePolities, date, path, placeTooltip],
+    [activePolities, date, path, pathForFeature, placeTooltip],
   );
 
   const mapPathElements = useMemo(
     () => path ? visibleFeatures.map((mapFeature, index) => {
+      const stateName = mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename ?? "state";
+      const district = mapFeature.properties.district ?? 0;
+      const featureKey = chamber === "rep" ? `house-${STATE_ABBR[stateName] ?? stateName}-${district}` : `${chamber}-${STATE_ABBR[stateName] ?? stateName}`;
       return (
         <path
-          key={`${mapFeature.properties.NAME ?? mapFeature.properties.name ?? mapFeature.properties.statename}-${mapFeature.properties.district ?? index}`}
-          d={path(mapFeature) ?? undefined}
+          key={`${stateName}-${district ?? index}`}
+          data-map-feature={featureKey}
+          d={pathForFeature(mapFeature)}
           fill={fillFor(mapFeature)}
           onMouseMove={(event) => {
             if (dragRef.current || pinnedTooltipRef.current) return;
@@ -541,7 +590,7 @@ export default function Home() {
         />
       );
     }) : [],
-    [fillFor, path, placeTooltip, visibleFeatures],
+    [chamber, fillFor, path, pathForFeature, placeTooltip, visibleFeatures],
   );
 
   const historicalStateOverlayPathElements = useMemo(
@@ -556,7 +605,7 @@ export default function Home() {
       return [(
         <path
           key={`historical-overlay-${name}`}
-          d={path(state) ?? undefined}
+          d={pathForFeature(state)}
           className={confederate ? "confederate-state" : "reconstruction-state"}
           fill={confederate ? CONFEDERATE_COLOR : RECONSTRUCTION_COLOR}
           onMouseMove={(event) => {
@@ -566,7 +615,7 @@ export default function Home() {
         />
       )];
     }) : [],
-    [activeStates, isConfederateFeature, path, placeTooltip, reconstructionDistrictForFeature],
+    [activeStates, isConfederateFeature, path, pathForFeature, placeTooltip, reconstructionDistrictForFeature],
   );
 
   const applyZoom = useCallback((next: ZoomState) => {
@@ -581,7 +630,7 @@ export default function Home() {
 
   const zoomBy = useCallback((factor: number, point = { x: 500, y: 310 }) => {
     const current = zoomRef.current;
-    const nextK = Math.max(1, Math.min(16, current.k * factor));
+    const nextK = clampZoom(current.k * factor);
     const ratio = nextK / current.k;
     const next = { k: nextK, x: point.x - (point.x - current.x) * ratio, y: point.y - (point.y - current.y) * ratio };
     applyZoom(next);
@@ -593,6 +642,129 @@ export default function Home() {
     applyZoom(reset);
     setZoom(reset);
   }, [applyZoom]);
+
+  const mapPointForClient = useCallback((clientX: number, clientY: number) => {
+    const rect = mapRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    return {
+      x: (clientX - rect.left) * 1000 / rect.width,
+      y: (clientY - rect.top) * 620 / rect.height,
+    };
+  }, []);
+
+  const beginDrag = useCallback((pointerId: number, clientX: number, clientY: number) => {
+    const rect = mapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    dragRef.current = {
+      pointerId,
+      clientX,
+      clientY,
+      x: zoomRef.current.x,
+      y: zoomRef.current.y,
+      scaleX: 1000 / rect.width,
+      scaleY: 620 / rect.height,
+    };
+  }, []);
+
+  const beginPinch = useCallback(() => {
+    const pointers = [...touchPointersRef.current.values()];
+    if (pointers.length < 2) return;
+    const [first, second] = pointers;
+    const center = mapPointForClient((first.clientX + second.clientX) / 2, (first.clientY + second.clientY) / 2);
+    if (!center) return;
+    const current = zoomRef.current;
+    pinchRef.current = {
+      distance: Math.max(1, Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY)),
+      worldX: (center.x - current.x) / current.k,
+      worldY: (center.y - current.y) / current.k,
+      k: current.k,
+    };
+    dragRef.current = null;
+    didPanRef.current = true;
+  }, [mapPointForClient]);
+
+  const handleMapPointerDown = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== "touch" && event.button !== 0) return;
+    didPanRef.current = false;
+    pinnedTooltipRef.current = false;
+    setTooltip(null);
+    setIsPanning(false);
+    if (event.pointerType === "touch") {
+      touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+      if (touchPointersRef.current.size >= 2) beginPinch();
+      else beginDrag(event.pointerId, event.clientX, event.clientY);
+      return;
+    }
+    beginDrag(event.pointerId, event.clientX, event.clientY);
+  }, [beginDrag, beginPinch]);
+
+  const handleMapPointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch" && touchPointersRef.current.has(event.pointerId)) {
+      touchPointersRef.current.set(event.pointerId, { clientX: event.clientX, clientY: event.clientY });
+      if (touchPointersRef.current.size >= 2) {
+        if (!pinchRef.current) beginPinch();
+        const pinch = pinchRef.current;
+        const pointers = [...touchPointersRef.current.values()];
+        if (!pinch || pointers.length < 2) return;
+        const [first, second] = pointers;
+        const center = mapPointForClient((first.clientX + second.clientX) / 2, (first.clientY + second.clientY) / 2);
+        if (!center) return;
+        const distance = Math.max(1, Math.hypot(second.clientX - first.clientX, second.clientY - first.clientY));
+        const nextK = clampZoom(pinch.k * distance / pinch.distance);
+        applyZoom({ k: nextK, x: center.x - pinch.worldX * nextK, y: center.y - pinch.worldY * nextK });
+        didPanRef.current = true;
+        setIsPanning(true);
+        event.preventDefault();
+        return;
+      }
+    }
+
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const moved = Math.abs(event.clientX - drag.clientX) + Math.abs(event.clientY - drag.clientY);
+    if (moved <= 4) return;
+    didPanRef.current = true;
+    setIsPanning(true);
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.setPointerCapture(event.pointerId);
+    applyZoom({
+      ...zoomRef.current,
+      x: drag.x + (event.clientX - drag.clientX) * drag.scaleX,
+      y: drag.y + (event.clientY - drag.clientY) * drag.scaleY,
+    });
+    event.preventDefault();
+  }, [applyZoom, beginPinch, mapPointForClient]);
+
+  const handleMapPointerEnd = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch") {
+      touchPointersRef.current.delete(event.pointerId);
+      pinchRef.current = null;
+      const remaining = [...touchPointersRef.current.entries()][0];
+      if (remaining) beginDrag(remaining[0], remaining[1].clientX, remaining[1].clientY);
+      else dragRef.current = null;
+    } else if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setZoom(zoomRef.current);
+    setIsPanning(false);
+  }, [beginDrag]);
+
+  const handleMapWheel = useCallback((event: globalThis.WheelEvent) => {
+    if ((event.target as Element | null)?.closest(".tooltip")) return;
+    if (!isLikelyMouseWheel(event)) return;
+    const point = mapPointForClient(event.clientX, event.clientY);
+    if (!point) return;
+    event.preventDefault();
+    event.stopPropagation();
+    zoomBy(event.deltaY < 0 ? 1.25 : 1 / 1.25, point);
+  }, [mapPointForClient, zoomBy]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.addEventListener("wheel", handleMapWheel, { passive: false });
+    return () => map.removeEventListener("wheel", handleMapWheel);
+  }, [handleMapWheel]);
 
   const handleMapKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") closeTooltip();
@@ -624,7 +796,7 @@ export default function Home() {
   }, [today]);
 
   const maxDay = toDay(today);
-  dateRef.current = date;
+  useEffect(() => { dateRef.current = date; }, [date]);
   useEffect(() => {
     const stopScrubbing = (event?: globalThis.KeyboardEvent) => {
       if (!event || heldArrowRef.current?.key === event.key) heldArrowRef.current = null;
@@ -793,33 +965,10 @@ export default function Home() {
             aria-label="Interactive map. Click a state or district to pin its details. Drag to pan; use plus and minus to zoom; use left and right arrows to scrub dates; use shift plus left or right and the up or down arrows to pan; press zero to reset."
             onKeyDown={handleMapKeyDown}
             onMouseLeave={() => { if (!pinnedTooltipRef.current) setTooltip(null); }}
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-              const rect = event.currentTarget.getBoundingClientRect();
-              dragRef.current = {
-                clientX: event.clientX,
-                clientY: event.clientY,
-                x: zoomRef.current.x,
-                y: zoomRef.current.y,
-                scaleX: 1000 / rect.width,
-                scaleY: 620 / rect.height,
-              };
-              didPanRef.current = false;
-              pinnedTooltipRef.current = false;
-              setIsPanning(true);
-              setTooltip(null);
-            }}
-            onPointerMove={(event) => {
-              if (!dragRef.current) return;
-              if (Math.abs(event.clientX - dragRef.current.clientX) + Math.abs(event.clientY - dragRef.current.clientY) > 3) didPanRef.current = true;
-              applyZoom({
-                ...zoomRef.current,
-                x: dragRef.current.x + (event.clientX - dragRef.current.clientX) * dragRef.current.scaleX,
-                y: dragRef.current.y + (event.clientY - dragRef.current.clientY) * dragRef.current.scaleY,
-              });
-            }}
-            onPointerUp={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
-            onPointerCancel={() => { dragRef.current = null; setZoom(zoomRef.current); setIsPanning(false); }}
+            onPointerDown={handleMapPointerDown}
+            onPointerMove={handleMapPointerMove}
+            onPointerUp={handleMapPointerEnd}
+            onPointerCancel={handleMapPointerEnd}
           >
             {mapLoading && chamber === "rep" && <div className="map-loading"><span /> Loading {governmentLabel} boundaries</div>}
             <div className="zoom-controls" aria-label="Map zoom controls" onPointerDown={(event) => event.stopPropagation()}>
@@ -946,9 +1095,10 @@ export default function Home() {
             const rows = resolvedActiveOfficials.filter((official) => official.g === group).sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
             if (!rows.length) return null;
             const offices = [...Map.groupBy(rows, (official) => official.t).entries()];
+            const summaryCount = group === "Supreme Court" ? rows.length : offices.length;
             return (
               <details key={group} open={group !== "Cabinet" || rows.length < 10}>
-                <summary><span>{group}</span><b>{offices.length}</b></summary>
+                <summary><span>{group}</span><b>{summaryCount}</b></summary>
                 <div className="official-list">
                   {offices.map(([title, holders]) => (
                     <section className="official-office" key={title}>

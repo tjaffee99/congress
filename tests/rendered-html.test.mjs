@@ -65,6 +65,10 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /<footer id="sources">/);
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
+  assert.match(page, /onPointerDown=\{handleMapPointerDown\}/);
+  assert.match(page, /addEventListener\("wheel", handleMapWheel, \{ passive: false \}\)/);
+  assert.match(page, /beginPinch/);
+  assert.match(page, /group === "Supreme Court" \? rows\.length : offices\.length/);
   assert.match(page, /SENATE CONTROL/);
   assert.match(page, /majority-marker/);
   assert.match(page, /Independent · \$\{caucus\} caucus/);
