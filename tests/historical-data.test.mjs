@@ -121,6 +121,15 @@ test("Cabinet offices do not appear before their creation and have one active ho
   assert.deepEqual(byTitle.get("Attorney General")?.map((official) => official.n), ["Todd Blanche"]);
 });
 
+test("Cabinet roster includes confirmed and acting Reagan officials on November 14, 1983", () => {
+  const cabinet = activeCabinet("1983-11-14");
+  assert.equal(cabinet.find((official) => official.t === "Secretary of Agriculture")?.n, "John R. Block");
+  assert.equal(cabinet.find((official) => official.t === "Secretary of Commerce")?.n, "Malcolm Baldrige Jr.");
+  const interior = cabinet.find((official) => official.t === "Secretary of the Interior");
+  assert.equal(interior?.n, "J. J. Simmons");
+  assert.equal(interior?.x, true);
+});
+
 test("former Cabinet departments appear only during their historical Cabinet periods", () => {
   assert.equal(activeOfficials("1800-01-01").find((official) => official.t === "Secretary of the Navy")?.n, "Benjamin Stoddert");
   assert.equal(activeOfficials("1830-01-01").find((official) => official.t === "Postmaster General")?.n, "William T. Barry");

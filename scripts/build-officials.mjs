@@ -729,16 +729,17 @@ async function houseFloorLeaders(legislators) {
 
 function mergeSameOfficeholder(rows) {
   const merged = [];
-  for (const row of [...rows].sort((a, b) => a.t.localeCompare(b.t) || a.id.localeCompare(b.id) || a.a.localeCompare(b.a))) {
+  for (const row of [...rows].sort((a, b) => a.t.localeCompare(b.t) || a.n.localeCompare(b.n) || a.a.localeCompare(b.a))) {
     const previous = merged.at(-1);
     const touches = previous?.z && row.a <= nextDay(previous.z);
     const overlapsOpenTerm = previous && !previous.z;
-    if (previous && previous.id === row.id && previous.t === row.t && (touches || overlapsOpenTerm)) {
+    if (previous && previous.n === row.n && previous.t === row.t && (touches || overlapsOpenTerm)) {
       previous.a = previous.a < row.a ? previous.a : row.a;
       previous.z = !previous.z || !row.z ? null : (previous.z > row.z ? previous.z : row.z);
       previous.p ??= row.p;
       previous.s ??= row.s;
       previous.w ??= row.w;
+      previous.x ||= row.x;
       continue;
     }
     merged.push({ ...row });
@@ -751,6 +752,11 @@ const legislators = [];
 for (const file of ["work/legislators-historical.yaml", "work/legislators-current.yaml"]) {
   legislators.push(...yaml.load(await readFile(path.join(root, file), "utf8")));
 }
+const wikipediaCabinetOfficeholders = JSON.parse(
+  await readFile(path.join(root, "data/cabinet-officeholders.json"), "utf8"),
+);
+const wikipediaCabinetTitles = new Set(wikipediaCabinetOfficeholders.map((official) => official.t));
+const wikipediaCabinetByTitle = Map.groupBy(wikipediaCabinetOfficeholders, (official) => official.t);
 
 const positionById = Object.fromEntries(positions.map((position) => [position[0], position]));
 const values = positions.map(([id]) => `wd:${id}`).join(" ");
@@ -814,7 +820,15 @@ officials = officials.filter((official) => ![
   "House minority leader",
   "Postmaster General",
   "Secretary of Commerce and Labor",
-].includes(official.t));
+].includes(official.t) && !(
+  wikipediaCabinetTitles.has(official.t)
+  && wikipediaCabinetByTitle.get(official.t).some((wikipediaOfficial) =>
+    wikipediaOfficial.n !== official.n
+    && official.a < (wikipediaOfficial.z ?? "9999-12-31")
+    && wikipediaOfficial.a < (official.z ?? "9999-12-31")
+  )
+));
+officials.push(...wikipediaCabinetOfficeholders);
 officials.push(...formerCabinetOfficeholders());
 officials.push(...intermittentCabinetOfficeholders());
 officials.push(...await houseSpeakers(legislators));
@@ -823,20 +837,6 @@ officials.push(...senateLeaders);
 officials.push(...await senatePartyWhips(legislators, senateLeaders));
 officials.push(...await houseFloorLeaders(legislators));
 officials.push(...await housePartyWhips(legislators));
-
-officials.push({
-  id: "TODD-BLANCHE-ACTING-AG",
-  n: "Todd Blanche",
-  t: "Attorney General",
-  g: "Cabinet",
-  o: 13,
-  h: null,
-  p: null,
-  x: true,
-  w: "https://en.wikipedia.org/wiki/Todd_Blanche",
-  a: "2026-04-02",
-  z: null,
-});
 
 for (const person of legislators) {
   for (const role of person.leadership_roles ?? []) {
