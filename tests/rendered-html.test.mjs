@@ -43,6 +43,7 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /\["1800-01-01", "1800"\]/);
   assert.match(page, /\["2000-01-01", "2000"\]/);
   assert.match(page, /wikipediaHref/);
+  assert.match(page, /Congress Legislators · Voteview · Wikidata/);
   assert.match(page, /const OFFICIAL_GROUPS = \["Executive", "Cabinet", "Supreme Court"\]/);
   assert.doesNotMatch(page, /"Cabinet-level", "Supreme Court"/);
   assert.match(page, /High detail/);

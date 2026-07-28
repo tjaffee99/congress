@@ -10,6 +10,104 @@ const boundaryDir = path.join(root, "work/congressional-district-boundaries/GeoJ
 const districtOut = path.join(root, "public/data/districts");
 const highDetailDistrictOut = path.join(root, "public/data/districts-high");
 const dataOut = path.join(root, "public/data");
+const VOTEVIEW_MEMBERS_URL = "https://voteview.com/static/data/out/members/HSall_members.csv";
+const VOTEVIEW_PARTIES_URL = "https://voteview.com/static/data/out/parties/HSall_parties.csv";
+
+function parseCsv(text) {
+  const rows = [];
+  let row = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (quoted && text[index + 1] === '"') {
+        field += '"';
+        index += 1;
+      } else {
+        quoted = !quoted;
+      }
+    } else if (character === "," && !quoted) {
+      row.push(field);
+      field = "";
+    } else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && text[index + 1] === "\n") index += 1;
+      row.push(field);
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += character;
+    }
+  }
+  if (field || row.length) {
+    row.push(field);
+    rows.push(row);
+  }
+  const [headers, ...values] = rows;
+  return values.map((cells) => Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])));
+}
+
+function normalizedPartyName(party, start = null) {
+  const normalized = {
+    "Democrat-Republican": "Democratic-Republican",
+    "Democratic Republican": "Democratic-Republican",
+    "Democrat Republican": "Democratic-Republican",
+    "Pro-administration": "Pro-Administration",
+    "Anti-administration": "Anti-Administration",
+    "Anti Mason": "Anti-Masonic",
+    "Anti Jacksonian": "Anti-Jackson",
+    "Jacksonian Republican": "Jackson Republican",
+    "Ind. Democrat": "Independent Democrat",
+    "Ind. Republican": "Independent Republican",
+    "Ind. Whig": "Independent Whig",
+  }[party] ?? party ?? "Unknown";
+  // The source roster occasionally applies the modern label retroactively.
+  // Before the Republican Party's 1854 founding, a bare "Republican" means
+  // the earlier Democratic-Republican affiliation, not the modern party.
+  if (normalized === "Republican" && start && start < "1854-01-01") return "Democratic-Republican";
+  return normalized;
+}
+
+function congressForDate(date) {
+  const [year, month, day] = date.split("-").map(Number);
+  if (date >= "1935-01-03") {
+    const start = year % 2 === 1 && (month > 1 || (month === 1 && day >= 3)) ? year : year - (year % 2 === 0 ? 1 : 2);
+    return Math.max(1, Math.min(119, (start - 1787) / 2));
+  }
+  const start = year % 2 === 1 && (month > 3 || (month === 3 && day >= 4)) ? year : year - (year % 2 === 0 ? 1 : 2);
+  return Math.max(1, Math.min(73, (start - 1787) / 2));
+}
+
+function previousDay(date) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() - 1);
+  return value.toISOString().slice(0, 10);
+}
+
+async function voteviewPartyAffiliations() {
+  const responses = await Promise.all([fetch(VOTEVIEW_MEMBERS_URL), fetch(VOTEVIEW_PARTIES_URL)]);
+  if (responses.some((response) => !response.ok)) {
+    throw new Error(`Voteview download failed: ${responses.map((response) => response.status).join(", ")}`);
+  }
+  const [memberRows, partyRows] = await Promise.all(responses.map(async (response) => parseCsv(await response.text())));
+  const partyNames = new Map(partyRows.map((row) => [
+    `${row.congress}|${row.chamber}|${row.party_code}`,
+    normalizedPartyName(row.party_name),
+  ]));
+  const affiliations = new Map();
+  for (const row of memberRows) {
+    if (!row.bioguide_id || (row.chamber !== "House" && row.chamber !== "Senate")) continue;
+    const party = partyNames.get(`${row.congress}|${row.chamber}|${row.party_code}`);
+    if (!party) continue;
+    const chamber = row.chamber === "House" ? "rep" : "sen";
+    const key = `${row.bioguide_id}|${row.congress}|${chamber}`;
+    const parties = affiliations.get(key) ?? new Set();
+    parties.add(party);
+    affiliations.set(key, parties);
+  }
+  return affiliations;
+}
 
 function fullName(person) {
   const n = person.name;
@@ -32,6 +130,8 @@ const TERM_OVERRIDES = new Map([
   ["W000216:1791-10-24:1792-03-21", { start: "1791-03-04", end: "1792-03-22" }],
   ["P000469:1839-12-02:1841-03-03", { start: "1839-03-04", end: "1839-10-29" }],
   ["M000389:1839-12-02:1841-03-03", { start: "1839-11-20", end: "1841-03-04" }],
+  ["R000360:1823-12-01:1825-03-03", { start: "1823-03-04", end: "1823-04-21", party: "Crawford Republican" }],
+  ["M000079:1831-12-05:1833-03-03", { start: "1831-03-04", end: "1831-04-15", party: "Anti-Jackson" }],
 ]);
 
 const MANUAL_TERMS = [
@@ -73,16 +173,37 @@ async function buildMembers() {
     people.push(...source);
   }
 
+  const voteviewParties = await voteviewPartyAffiliations();
   const terms = people.flatMap((person) =>
     person.terms.map((term) => {
       const override = TERM_OVERRIDES.get(`${person.id.bioguide}:${term.start}:${term.end}`);
+      const firstCongress = congressForDate(override?.start ?? term.start);
+      const lastCongress = congressForDate(previousDay(override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end)));
+      const sourceParty = (override?.party || term.party)
+        ? normalizedPartyName(override?.party ?? term.party, term.start)
+        : (term.district === -1 ? "Nonpartisan" : "Unknown");
+      const partiesByCongress = {};
+      for (let congress = firstCongress; congress <= lastCongress; congress += 1) {
+        const candidates = voteviewParties.get(`${person.id.bioguide}|${congress}|${term.type}`);
+        if (!candidates?.size) continue;
+        if (candidates.size === 1) {
+          partiesByCongress[congress] = [...candidates][0];
+          continue;
+        }
+        const exact = [...candidates].find((candidate) => candidate === sourceParty);
+        if (exact) partiesByCongress[congress] = exact;
+      }
+      const firstVoteviewParty = Object.entries(partiesByCongress).sort((a, b) => Number(a[0]) - Number(b[0]))[0]?.[1];
+      const party = firstVoteviewParty ?? sourceParty;
+      const partyChanges = Object.fromEntries(Object.entries(partiesByCongress).filter(([, value]) => value !== party));
       return {
         id: person.id.bioguide,
         n: fullName(person),
         t: term.type,
         s: term.state,
         d: term.district ?? null,
-        p: term.party ?? "Unknown",
+        p: party,
+        q: Object.keys(partyChanges).length ? partyChanges : null,
         c: term.caucus ?? null,
         w: wikipediaUrl(person),
         a: override?.start ?? term.start,
@@ -138,6 +259,7 @@ async function buildMembers() {
   const compactTerms = terms.map((term) => {
     const compact = { ...term };
     if (compact.t === "sen") compact.k = compact.senateClass;
+    if (!compact.q) delete compact.q;
     delete compact.sourceStart;
     delete compact.sourceEnd;
     delete compact.senateClass;

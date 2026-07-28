@@ -19,6 +19,10 @@ function activeHouse(date) {
   return members.filter((member) => member.t === "rep" && member.a <= date && member.z > date);
 }
 
+function partyInCongress(member, congress) {
+  return member.q?.[congress] ?? member.p;
+}
+
 function activeSenate(date, state) {
   return members.filter((member) => member.t === "sen" && member.s === state && member.a <= date && member.z > date);
 }
@@ -34,6 +38,53 @@ function activeCabinet(date) {
 
 test("the Second Congress begins with its 69-member elected House", () => {
   assert.equal(activeHouse("1791-03-04").length, 69);
+});
+
+test("the First Congress uses Pro- and Anti-Administration affiliations", () => {
+  const active = members.filter((member) => ["rep", "sen"].includes(member.t) && member.a <= "1789-05-01" && member.z > "1789-05-01");
+  assert.deepEqual(
+    [...new Set(active.map((member) => partyInCongress(member, 1)))].sort(),
+    ["Anti-Administration", "Pro-Administration"],
+  );
+});
+
+test("the Eighteenth Congress uses Voteview's contemporary party factions", () => {
+  const active = activeHouse("1824-01-01");
+  const parties = new Set(active.map((member) => partyInCongress(member, 18)));
+  assert.equal(parties.has("Unknown"), false);
+  assert.equal(parties.has("Republican"), false);
+  assert.equal(parties.has("Democrat"), false);
+  assert.equal(parties.has("Whig"), false);
+  for (const party of [
+    "Adams-Clay Republican",
+    "Crawford Republican",
+    "Jackson Republican",
+    "Adams-Clay Federalist",
+    "Crawford Federalist",
+    "Jackson Federalist",
+  ]) assert.equal(parties.has(party), true, party);
+});
+
+test("the modern Republican label never appears before the party existed", () => {
+  const anachronistic = members.filter((member) =>
+    member.a < "1854-01-01"
+    && (member.p === "Republican" || Object.values(member.q ?? {}).includes("Republican"))
+  );
+  assert.equal(anachronistic.length, 0);
+});
+
+test("early congressional party affiliations do not fall back to Unknown", () => {
+  for (let congress = 1; congress <= 33; congress += 1) {
+    const date = `${1787 + congress * 2}-12-31`;
+    const active = members.filter((member) =>
+      ["rep", "sen"].includes(member.t) && member.a <= date && member.z > date
+    );
+    assert.equal(
+      active.filter((member) => partyInCongress(member, congress) === "Unknown").length,
+      0,
+      `${congress}th Congress`,
+    );
+  }
 });
 
 test("the atlas distinguishes the two pre-Constitution national congresses", () => {

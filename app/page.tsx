@@ -14,7 +14,7 @@ import { FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutiona
 import { officialOfficesForDate } from "./cabinet-offices.mjs";
 
 type Chamber = "sen" | "rep" | "congress";
-type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; k?: number | null; p: string; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
+type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; k?: number | null; p: string; q?: Record<string, string>; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
 type Official = { id: string; n: string; t: string; g: string; o: number; h: Chamber | null; p: string | null; s?: string | null; x?: boolean; w?: string | null; a: string; z: string | null };
 type MapProperties = {
   name?: string;
@@ -79,7 +79,10 @@ const OFFICIAL_GROUPS = ["Executive", "Cabinet", "Supreme Court"] as const;
 const PARTY_COLORS: Record<string, string> = {
   Republican: "#b64c44", Democrat: "#416f91", Independent: "#887c70", Federalist: "#b28a43",
   "Democratic-Republican": "#5e806f", Whig: "#b58a64", "Anti-Administration": "#80678c",
-  "Pro-Administration": "#b17449", Jackson: "#53778a", "Adams-Clay Federalist": "#a47d47",
+  "Pro-Administration": "#b17449", Jackson: "#53778a", Adams: "#a47d47",
+  "Adams-Clay Republican": "#709b7f", "Crawford Republican": "#4d7863", "Jackson Republican": "#3f6f5a",
+  "Adams-Clay Federalist": "#a47d47", "Crawford Federalist": "#8d6f47", "Jackson Federalist": "#c09b59",
+  "Anti-Jackson": "#a77c63", "Anti-Masonic": "#756b8c", Nullifier: "#826c55",
   Unionist: "#7d6d59", "Conservative Republican": "#9b574c", Populist: "#807548",
   Progressive: "#59847a", "Free Soil": "#6c8454", "American Labor": "#7b5e72", Unknown: "#aaa398",
 };
@@ -104,6 +107,13 @@ function partyLabel(member: Member) {
   return member.p === "Independent" && member.c
     ? `Independent · ${caucus} caucus`
     : member.p;
+}
+
+function controlParty(member: Member) {
+  if (member.c) return member.c;
+  if (["Adams-Clay Republican", "Crawford Republican", "Jackson Republican"].includes(member.p)) return "Democratic-Republican";
+  if (["Adams-Clay Federalist", "Crawford Federalist", "Jackson Federalist"].includes(member.p)) return "Federalist";
+  return member.p;
 }
 
 function wikipediaHref(person: { n: string; w?: string | null }) {
@@ -320,7 +330,8 @@ export default function Home() {
       const index = member.t === "rep" ? house : senate;
       for (let term = firstCongress; term <= lastCongress; term += 1) {
         const bucket = index.get(term) ?? [];
-        bucket.push(member);
+        const party = member.q?.[String(term)] ?? member.p;
+        bucket.push(party === member.p ? member : { ...member, p: party });
         index.set(term, bucket);
       }
     }
@@ -409,8 +420,8 @@ export default function Home() {
     const controlCounts = new Map<string, number>();
     const visualGroups = new Map<string, { label: string; color: string; count: number }>();
     for (const member of activeMembers) {
-      const controlParty = member.c ?? member.p;
-      controlCounts.set(controlParty, (controlCounts.get(controlParty) ?? 0) + 1);
+      const governingParty = controlParty(member);
+      controlCounts.set(governingParty, (controlCounts.get(governingParty) ?? 0) + 1);
       const key = `${member.p}|${member.c ?? ""}`;
       const label = partyLabel(member);
       const group = visualGroups.get(key) ?? { label, color: colorForMember(member), count: 0 };
@@ -1170,7 +1181,7 @@ export default function Home() {
       </section>
 
       <footer id="sources">
-        <p><strong>Sources:</strong> U.S. House History · UCLA Congressional District Boundaries · U.S. Census Bureau · Newberry Library · Congress Legislators · Wikidata</p>
+        <p><strong>Sources:</strong> U.S. House History · UCLA Congressional District Boundaries · U.S. Census Bureau · Newberry Library · Congress Legislators · Voteview · Wikidata</p>
         <small>Research interface · vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</small>
       </footer>
     </main>
