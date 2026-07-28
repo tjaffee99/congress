@@ -70,7 +70,12 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /onPointerDown=\{handleMapPointerDown\}/);
   assert.match(page, /addEventListener\("wheel", handleMapWheel, \{ passive: false \}\)/);
   assert.match(page, /beginPinch/);
-  assert.match(page, /group === "Supreme Court" \? rows\.length : offices\.length/);
+  assert.match(page, /OFFICIAL_OFFICES/);
+  assert.match(page, /official-vacant/);
+  assert.match(page, /Created offices remain visible while vacant/);
+  assert.match(page, /open=\{openOfficialGroups\[group\]\}/);
+  assert.match(page, /onToggle=/);
+  assert.doesNotMatch(page, /open=\{group !== "Cabinet" \|\| rows\.length < 10\}/);
   assert.match(page, /SENATE CONTROL/);
   assert.match(page, /majority-marker/);
   assert.match(page, /LEADERSHIP_OFFICES/);

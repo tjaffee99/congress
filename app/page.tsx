@@ -29,6 +29,8 @@ type ZoomState = { x: number; y: number; k: number };
 type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; labelOnly: string | null; feature: MapFeature };
 type PointerPosition = { clientX: number; clientY: number };
 type PinchState = { distance: number; worldX: number; worldY: number; k: number };
+type OfficialGroup = "Executive" | "Cabinet" | "Cabinet-level" | "Supreme Court";
+type OfficialOffice = { title: string; group: Exclude<OfficialGroup, "Supreme Court">; created: string; discontinued?: string; order: number };
 
 const MIN_DATE = "1776-07-04";
 const DAY = 86_400_000;
@@ -71,6 +73,42 @@ const LEADERSHIP_OFFICES = {
     { title: "Senate minority whip", created: "1915-03-04", order: 45 },
   ],
 } as const;
+
+const OFFICIAL_GROUPS = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"] as const;
+const OFFICIAL_OFFICES: OfficialOffice[] = [
+  { title: "President", group: "Executive", created: "1789-03-04", order: 1 },
+  { title: "Vice President", group: "Executive", created: "1789-03-04", order: 2 },
+  { title: "Secretary of State", group: "Cabinet", created: "1789-09-15", order: 10 },
+  { title: "Secretary of the Treasury", group: "Cabinet", created: "1789-09-11", order: 11 },
+  { title: "Secretary of War", group: "Cabinet", created: "1789-08-07", discontinued: "1947-09-18", order: 12 },
+  { title: "Secretary of Defense", group: "Cabinet", created: "1947-09-17", order: 12 },
+  { title: "Secretary of the Navy", group: "Cabinet", created: "1798-06-18", discontinued: "1949-08-10", order: 12.1 },
+  { title: "Secretary of the Army", group: "Cabinet", created: "1947-09-18", discontinued: "1949-08-10", order: 12.2 },
+  { title: "Secretary of the Air Force", group: "Cabinet", created: "1947-09-18", discontinued: "1949-08-10", order: 12.3 },
+  { title: "Attorney General", group: "Cabinet", created: "1789-09-24", order: 13 },
+  { title: "Postmaster General", group: "Cabinet", created: "1829-03-09", discontinued: "1971-07-01", order: 14 },
+  { title: "Secretary of the Interior", group: "Cabinet", created: "1849-03-03", order: 14.1 },
+  { title: "Secretary of Agriculture", group: "Cabinet", created: "1889-02-15", order: 15 },
+  { title: "Secretary of Commerce and Labor", group: "Cabinet", created: "1903-02-14", discontinued: "1913-03-04", order: 16 },
+  { title: "Secretary of Commerce", group: "Cabinet", created: "1913-03-04", order: 16.1 },
+  { title: "Secretary of Labor", group: "Cabinet", created: "1913-03-04", order: 17 },
+  { title: "Secretary of Health, Education & Welfare", group: "Cabinet", created: "1953-04-11", discontinued: "1980-05-04", order: 18 },
+  { title: "Secretary of Health & Human Services", group: "Cabinet", created: "1980-05-04", order: 18.1 },
+  { title: "Secretary of Housing & Urban Development", group: "Cabinet", created: "1965-09-09", order: 19 },
+  { title: "Secretary of Transportation", group: "Cabinet", created: "1966-10-15", order: 20 },
+  { title: "Secretary of Energy", group: "Cabinet", created: "1977-08-04", order: 21 },
+  { title: "Secretary of Education", group: "Cabinet", created: "1980-05-04", order: 22 },
+  { title: "Secretary of Veterans Affairs", group: "Cabinet", created: "1989-03-15", order: 23 },
+  { title: "Secretary of Homeland Security", group: "Cabinet", created: "2003-01-24", order: 24 },
+  { title: "White House Chief of Staff", group: "Cabinet-level", created: "1946-01-20", order: 25 },
+  { title: "EPA Administrator", group: "Cabinet-level", created: "1970-12-02", order: 26 },
+  { title: "Director of the Office of Management & Budget", group: "Cabinet-level", created: "1970-07-01", order: 27 },
+  { title: "United States Trade Representative", group: "Cabinet-level", created: "1962-10-11", order: 28 },
+  { title: "U.S. Ambassador to the United Nations", group: "Cabinet-level", created: "1947-01-17", order: 29 },
+  { title: "Small Business Administrator", group: "Cabinet-level", created: "1953-07-30", order: 30 },
+  { title: "Director of National Intelligence", group: "Cabinet-level", created: "2005-04-21", order: 31 },
+  { title: "Director of the Central Intelligence Agency", group: "Cabinet-level", created: "2004-12-17", order: 32 },
+];
 
 const PARTY_COLORS: Record<string, string> = {
   Republican: "#b64c44", Democrat: "#416f91", Independent: "#887c70", Federalist: "#b28a43",
@@ -172,6 +210,12 @@ export default function Home() {
   const [date, setDate] = useState(currentUsDate);
   const [dateDraft, setDateDraft] = useState(currentUsDate);
   const [chamber, setChamber] = useState<Chamber>("rep");
+  const [openOfficialGroups, setOpenOfficialGroups] = useState<Record<OfficialGroup, boolean>>({
+    Executive: true,
+    Cabinet: false,
+    "Cabinet-level": true,
+    "Supreme Court": true,
+  });
   const [federalMembers, setFederalMembers] = useState<Member[]>([]);
   const [preconstitutionalMembers, setPreconstitutionalMembers] = useState<Member[]>([]);
   const [officials, setOfficials] = useState<Official[]>([]);
@@ -852,7 +896,6 @@ export default function Home() {
     .map((state) => reconstructionDistrictForFeature(state)?.number)
     .filter((number): number is number => Boolean(number)))]
     .sort((a, b) => a - b);
-  const groups = ["Executive", "Cabinet", "Cabinet-level", "Supreme Court"];
   const chamberLeadership = chamber === "congress" ? [] : LEADERSHIP_OFFICES[chamber]
     .filter((office) => office.created <= date)
     .map((office) => ({
@@ -1116,19 +1159,30 @@ export default function Home() {
                 </section>
               </div>
             </details>
-          ) : groups.map((group) => {
+          ) : OFFICIAL_GROUPS.map((group) => {
             const rows = resolvedActiveOfficials.filter((official) => official.g === group).sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
-            if (!rows.length) return null;
-            const offices = [...Map.groupBy(rows, (official) => official.t).entries()];
-            const summaryCount = group === "Supreme Court" ? rows.length : offices.length;
+            const offices = group === "Supreme Court"
+              ? [...Map.groupBy(rows, (official) => official.t).entries()]
+              : OFFICIAL_OFFICES
+                .filter((office) => office.group === group && office.created <= date && (!office.discontinued || date < office.discontinued))
+                .sort((a, b) => a.order - b.order)
+                .map((office) => [office.title, rows.filter((official) => official.t === office.title)] as const);
+            if (!offices.length) return null;
             return (
-              <details key={group} open={group !== "Cabinet" || rows.length < 10}>
-                <summary><span>{group}</span><b>{summaryCount}</b></summary>
+              <details
+                key={group}
+                open={openOfficialGroups[group]}
+                onToggle={(event) => {
+                  const isOpen = event.currentTarget.open;
+                  setOpenOfficialGroups((current) => current[group] === isOpen ? current : { ...current, [group]: isOpen });
+                }}
+              >
+                <summary><span>{group}</span><b>{rows.length}</b></summary>
                 <div className="official-list">
                   {offices.map(([title, holders]) => (
                     <section className="official-office" key={title}>
                       <h3>{title === "Associate Justice" ? "Associate Justices" : title}</h3>
-                      {holders.map((official) => (
+                      {holders.length ? holders.map((official) => (
                         <div className="official-holder" key={`${official.id}-${official.a}`}>
                           <span className="official-name">
                             {official.p && <i className="official-party-dot" style={{ background: colorFor(official.p) }} />}
@@ -1136,14 +1190,14 @@ export default function Home() {
                           </span>
                           {(official.x || official.p) && <small>{official.x ? "Acting" : ""}{official.x && official.p ? " · " : ""}{official.p ?? ""}</small>}
                         </div>
-                      ))}
+                      )) : <p className="official-vacant"><em>Vacant</em></p>}
                     </section>
                   ))}
                 </div>
               </details>
             );
           })}
-          <p className="rail-note">{isPreconstitutional ? "Delegate service is shown at annual resolution because surviving rosters generally record participation by year, not a continuous daily tenure. Each state cast one vote under the Articles." : "Offices appear only after their creation. Vacancies and acting tenures are shown when they are present in the source record."}</p>
+          <p className="rail-note">{isPreconstitutional ? "Delegate service is shown at annual resolution because surviving rosters generally record participation by year, not a continuous daily tenure. Each state cast one vote under the Articles." : "Created offices remain visible while vacant; discontinued offices are removed after their abolition."}</p>
         </aside>
       </section>
 
