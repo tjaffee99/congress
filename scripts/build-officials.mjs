@@ -35,6 +35,11 @@ const positions = [
   ["Q15623718", "Small Business Administrator", "Cabinet-level", 30],
   ["Q1154057", "Director of National Intelligence", "Cabinet-level", 31],
   ["Q27656", "Director of the Central Intelligence Agency", "Cabinet-level", 32],
+  ["Q732029", "Counselor to the President", "Cabinet-level", 25.1],
+  ["Q1296423", "White House Counsel", "Cabinet-level", 25.2],
+  ["Q27907217", "Chair of the Council of Economic Advisers", "Cabinet-level", 26.1],
+  ["Q1414246", "National Security Advisor", "Cabinet-level", 25.3],
+  ["Q1227524", "Director of Central Intelligence", "Cabinet-level", 31.1],
   ["Q11147", "Chief Justice", "Supreme Court", 35],
   ["Q11144", "Associate Justice", "Supreme Court", 36],
   ["Q912994", "Speaker of the House", "Congressional leadership", 40, "rep"],
@@ -70,12 +75,17 @@ const created = {
   "Secretary of Defense": "1947-09-17",
   "White House Chief of Staff": "1946-01-20",
   "EPA Administrator": "1970-12-02",
-  "Director of the Office of Management & Budget": "1970-07-01",
+  "Director of the Office of Management & Budget": "1921-06-10",
   "United States Trade Representative": "1962-10-11",
   "U.S. Ambassador to the United Nations": "1947-01-17",
   "Small Business Administrator": "1953-07-30",
   "Director of National Intelligence": "2005-04-21",
   "Director of the Central Intelligence Agency": "2004-12-17",
+  "Counselor to the President": "1969-01-20",
+  "White House Counsel": "1943-01-01",
+  "Chair of the Council of Economic Advisers": "1946-02-20",
+  "National Security Advisor": "1953-03-23",
+  "Director of Central Intelligence": "1946-01-23",
   "Chief Justice": "1789-09-26",
   "Associate Justice": "1789-09-26",
 };
@@ -88,6 +98,7 @@ const discontinued = {
   "Postmaster General": "1971-07-01",
   "Secretary of Commerce and Labor": "1913-03-04",
   "Secretary of Health, Education & Welfare": "1980-05-04",
+  "Director of Central Intelligence": "2005-04-21",
 };
 
 // The Postal Service historian publishes one continuous roster with exact dates.
@@ -190,6 +201,52 @@ function formerCabinetOfficeholders() {
   return [...postmasters, ...commerceAndLabor];
 }
 
+function intermittentCabinetOfficeholders() {
+  return [
+    ["WHC-PHILIP-BUCHEN", "Philip W. Buchen", "White House Counsel", 25.2, false, "1974-08-09", "1977-01-20"],
+    ["USTR-ALAN-WOLFF-ACTING", "Alan Wm. Wolff", "United States Trade Representative", 28, true, "1977-01-20", "1977-03-30"],
+    ["USTR-ROBERT-STRAUSS", "Robert S. Strauss", "United States Trade Representative", 28, false, "1977-03-30", "1979-08-17"],
+    ["USTR-REUBIN-ASKEW", "Reubin Askew", "United States Trade Representative", 28, false, "1979-10-01", "1981-01-01"],
+    ["USTR-WILLIAM-BROCK", "William E. Brock III", "United States Trade Representative", 28, false, "1981-01-22", "1985-04-29"],
+    ["USTR-CLAYTON-YEUTTER", "Clayton Yeutter", "United States Trade Representative", 28, false, "1985-07-01", "1989-01-20"],
+    ["USTR-CARLA-HILLS", "Carla Anderson Hills", "United States Trade Representative", 28, false, "1989-02-06", "1993-01-20"],
+    ["USTR-MICKEY-KANTOR", "Mickey Kantor", "United States Trade Representative", 28, false, "1993-01-22", "1996-04-12"],
+    ["USTR-CHARLENE-BARSHEFSKY-ACTING", "Charlene Barshefsky", "United States Trade Representative", 28, true, "1996-04-12", "1997-03-18"],
+    ["USTR-CHARLENE-BARSHEFSKY", "Charlene Barshefsky", "United States Trade Representative", 28, false, "1997-03-18", "2001-01-20"],
+    ["USTR-PETER-ALLGEIER-ACTING", "Peter Allgeier", "United States Trade Representative", 28, true, "2005-02-22", "2005-05-17"],
+    ["USTR-ROB-PORTMAN", "Rob Portman", "United States Trade Representative", 28, false, "2005-05-17", "2006-05-29"],
+    ["USTR-SUSAN-SCHWAB-ACTING", "Susan Schwab", "United States Trade Representative", 28, true, "2006-05-29", "2006-06-08"],
+    ["USTR-SUSAN-SCHWAB", "Susan Schwab", "United States Trade Representative", 28, false, "2006-06-08", "2009-01-20"],
+    ["CEA-JARED-BERNSTEIN", "Jared Bernstein", "Chair of the Council of Economic Advisers", 26.1, false, "2023-07-10", "2025-01-20"],
+    ["ONDCP-JOHN-WALTERS-ACTING", "John P. Walters", "Director of National Drug Control Policy", 30.1, true, "1993-01-20", "1993-07-19"],
+    ["ONDCP-LEE-BROWN", "Lee P. Brown", "Director of National Drug Control Policy", 30.1, false, "1993-07-19", "1996-01-20"],
+    ["ONDCP-BARRY-MCCAFFREY", "Barry McCaffrey", "Director of National Drug Control Policy", 30.1, false, "1996-02-29", "2001-01-20"],
+    ["ONDCP-EDWARD-JURITH-ACTING", "Edward Jurith", "Director of National Drug Control Policy", 30.1, true, "2001-01-20", "2001-12-07"],
+    ["ONDCP-JOHN-WALTERS", "John P. Walters", "Director of National Drug Control Policy", 30.1, false, "2001-12-07", "2009-01-20"],
+    ["FEMA-JAMES-LEE-WITT", "James Lee Witt", "FEMA Administrator", 30.2, false, "1996-02-26", "2001-01-20"],
+    ["SBA-PHILIP-LADER", "Philip Lader", "Small Business Administrator", 30, false, "1994-10-08", "1997-02-11"],
+    ["SBA-AIDA-ALVAREZ", "Aida Álvarez", "Small Business Administrator", 30, false, "1997-03-07", "2001-01-20"],
+    ["SBA-KAREN-MILLS", "Karen Mills", "Small Business Administrator", 30, false, "2012-01-13", "2013-09-01"],
+    ["SBA-JEANNE-HULIT-ACTING", "Jeanne Hulit", "Small Business Administrator", 30, true, "2013-09-01", "2014-02-07"],
+    ["SBA-MARIANNE-MARKOWITZ-ACTING", "Marianne Markowitz", "Small Business Administrator", 30, true, "2014-02-07", "2014-04-07"],
+    ["OSTP-ERIC-LANDER", "Eric Lander", "Director of the Office of Science & Technology Policy", 33, false, "2021-06-02", "2022-02-18"],
+    ["OSTP-ALONDRA-NELSON-ACTING", "Alondra Nelson", "Director of the Office of Science & Technology Policy", 33, true, "2022-02-18", "2022-10-03"],
+    ["OSTP-ARATI-PRABHAKAR", "Arati Prabhakar", "Director of the Office of Science & Technology Policy", 33, false, "2022-10-03", "2025-01-20"],
+  ].map(([id, name, title, order, acting, start, end]) => ({
+    id,
+    n: name,
+    t: title,
+    g: "Cabinet-level",
+    o: order,
+    h: null,
+    p: null,
+    x: acting,
+    w: wikipediaUrlForName(name),
+    a: start,
+    z: end,
+  }));
+}
+
 const presidentParties = new Map(Object.entries({
   "George Washington": "Independent",
   "John Adams": "Federalist",
@@ -267,6 +324,8 @@ const falseOfficeClaims = new Set([
   "Speaker of the House|Jack Kemp",
   "Secretary of the Interior|Herbert Alton Meyer",
   "Director of the Central Intelligence Agency|Pito Grotesco",
+  "White House Counsel|Philip W. Buchen",
+  "Small Business Administrator|Marianne Markowitz",
 ]);
 
 const leadershipRoleMap = new Map([
@@ -757,6 +816,7 @@ officials = officials.filter((official) => ![
   "Secretary of Commerce and Labor",
 ].includes(official.t));
 officials.push(...formerCabinetOfficeholders());
+officials.push(...intermittentCabinetOfficeholders());
 officials.push(...await houseSpeakers(legislators));
 const senateLeaders = await senateFloorLeaders();
 officials.push(...senateLeaders);

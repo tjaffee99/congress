@@ -28,8 +28,9 @@ test("server-renders the finished American Atlas shell", async () => {
 });
 
 test("the product source contains the historical map and no starter preview", async () => {
-  const [page, layout, packageJson] = await Promise.all([
+  const [page, cabinetOffices, layout, packageJson] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/cabinet-offices.mjs", import.meta.url), "utf8"),
     readFile(new URL("../app/layout.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
@@ -41,7 +42,8 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /\["1800-01-01", "1800"\]/);
   assert.match(page, /\["2000-01-01", "2000"\]/);
   assert.match(page, /wikipediaHref/);
-  assert.match(page, /Cabinet-level/);
+  assert.match(page, /const OFFICIAL_GROUPS = \["Executive", "Cabinet", "Supreme Court"\]/);
+  assert.doesNotMatch(page, /"Cabinet-level", "Supreme Court"/);
   assert.match(page, /High detail/);
   assert.doesNotMatch(page, /No dated officeholder in the source record/);
   assert.match(page, /confederate-state/);
@@ -70,9 +72,12 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /onPointerDown=\{handleMapPointerDown\}/);
   assert.match(page, /addEventListener\("wheel", handleMapWheel, \{ passive: false \}\)/);
   assert.match(page, /beginPinch/);
-  assert.match(page, /OFFICIAL_OFFICES/);
+  assert.match(page, /officialOfficesForDate/);
   assert.match(page, /official-vacant/);
+  assert.match(page, /className="acting-label">\(acting\)/);
+  assert.match(page, /<em><a href=\{wikipediaHref\(official\)\}/);
   assert.match(page, /Created offices remain visible while vacant/);
+  assert.match(page, /periods when they held Cabinet rank/);
   assert.match(page, /open=\{openOfficialGroups\[group\]\}/);
   assert.match(page, /onToggle=/);
   assert.doesNotMatch(page, /open=\{group !== "Cabinet" \|\| rows\.length < 10\}/);
@@ -87,6 +92,10 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Unfilled Senate seat/);
   assert.doesNotMatch(page, /className="portrait"|initials\(/);
   assert.match(layout, /American Atlas/);
+  assert.match(cabinetOffices, /Postmaster General/);
+  assert.match(cabinetOffices, /Director of National Drug Control Policy/);
+  assert.match(cabinetOffices, /FEMA Administrator/);
+  assert.match(cabinetOffices, /Director of the Office of Science & Technology Policy/);
   assert.doesNotMatch(page, /SkeletonPreview|_sites-preview/);
   assert.doesNotMatch(packageJson, /react-loading-skeleton/);
 });

@@ -7,6 +7,7 @@ import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLa
 import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "../app/date-scrub.mjs";
 import { preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "../app/preconstitutional.mjs";
+import { officialOfficesForDate } from "../app/cabinet-offices.mjs";
 
 const members = JSON.parse(await readFile(new URL("../public/data/members.json", import.meta.url), "utf8"));
 const officials = JSON.parse(await readFile(new URL("../public/data/officials.json", import.meta.url), "utf8"));
@@ -24,6 +25,11 @@ function activeSenate(date, state) {
 
 function activeOfficials(date) {
   return officials.filter((official) => official.a <= date && (!official.z || official.z > date));
+}
+
+function activeCabinet(date) {
+  const visibleTitles = new Set(officialOfficesForDate("Cabinet", date).map((office) => office.title));
+  return activeOfficials(date).filter((official) => ["Cabinet", "Cabinet-level"].includes(official.g) && visibleTitles.has(official.t));
 }
 
 test("the Second Congress begins with its 69-member elected House", () => {
@@ -123,12 +129,21 @@ test("former Cabinet departments appear only during their historical Cabinet per
   assert.equal(activeOfficials("1972-01-01").some((official) => official.t === "Postmaster General"), false);
 });
 
-test("Cabinet-level offices appear only after their posts were created", () => {
-  assert.equal(activeOfficials("1900-01-01").some((official) => official.g === "Cabinet-level"), false);
-  const current = activeOfficials("2026-07-26").filter((official) => official.g === "Cabinet-level");
-  assert.ok(current.length >= 7);
-  assert.ok(current.some((official) => official.t === "White House Chief of Staff"));
-  assert.ok(current.some((official) => official.t === "EPA Administrator"));
+test("Cabinet and Cabinet-rank officials share one historically bounded roster", () => {
+  assert.equal(officialOfficesForDate("Cabinet", "1900-01-01").some((office) => office.title === "White House Chief of Staff"), false);
+  assert.equal(officialOfficesForDate("Cabinet", "1995-01-01").some((office) => office.title === "Director of National Drug Control Policy"), true);
+  assert.equal(officialOfficesForDate("Cabinet", "2010-01-01").some((office) => office.title === "Director of National Drug Control Policy"), false);
+  assert.equal(officialOfficesForDate("Cabinet", "2022-01-01").some((office) => office.title === "Director of the Office of Science & Technology Policy"), true);
+  assert.equal(officialOfficesForDate("Cabinet", "2026-07-26").some((office) => office.title === "U.S. Ambassador to the United Nations"), false);
+
+  const cabinet1985 = activeCabinet("1985-08-01");
+  assert.equal(cabinet1985.find((official) => official.t === "United States Trade Representative")?.n, "Clayton Yeutter");
+  const cabinet1996 = activeCabinet("1996-03-01");
+  assert.equal(cabinet1996.find((official) => official.t === "FEMA Administrator")?.n, "James Lee Witt");
+  assert.equal(cabinet1996.find((official) => official.t === "Director of National Drug Control Policy")?.n, "Barry McCaffrey");
+  const actingScienceDirector = activeCabinet("2022-06-01").find((official) => official.t === "Director of the Office of Science & Technology Policy");
+  assert.equal(actingScienceDirector?.n, "Alondra Nelson");
+  assert.equal(actingScienceDirector?.x, true);
 });
 
 test("people have direct Wikipedia records or a clickable search fallback", () => {
