@@ -40,9 +40,9 @@ const positions = [
   ["Q912994", "Speaker of the House", "Congressional leadership", 40, "rep"],
   ["Q1140848", "President pro tempore", "Congressional leadership", 41, "sen"],
   ["Q28530268", "Senate majority leader", "Congressional leadership", 42, "sen"],
-  ["Q100734881", "Senate minority leader", "Congressional leadership", 43, "sen"],
-  ["Q108913856", "House majority leader", "Congressional leadership", 44, "rep"],
-  ["Q138208451", "House minority leader", "Congressional leadership", 45, "rep"],
+  ["Q100734881", "Senate minority leader", "Congressional leadership", 44, "sen"],
+  ["Q108913856", "House majority leader", "Congressional leadership", 42, "rep"],
+  ["Q138208451", "House minority leader", "Congressional leadership", 44, "rep"],
 ];
 
 const created = {
@@ -250,9 +250,13 @@ const leadershipRoleMap = new Map([
   ["Speaker of the House", ["Speaker of the House", 40, "rep"]],
   ["President Pro Tempore of the Senate", ["President pro tempore", 41, "sen"]],
   ["Senate Majority Leader", ["Senate majority leader", 42, "sen"]],
-  ["Senate Minority Leader", ["Senate minority leader", 43, "sen"]],
-  ["House Majority Leader", ["House majority leader", 44, "rep"]],
-  ["House Minority Leader", ["House minority leader", 45, "rep"]],
+  ["Senate Majority Whip", ["Senate majority whip", 43, "sen"]],
+  ["Senate Minority Leader", ["Senate minority leader", 44, "sen"]],
+  ["Senate Minority Whip", ["Senate minority whip", 45, "sen"]],
+  ["House Majority Leader", ["House majority leader", 42, "rep"]],
+  ["House Majority Whip", ["House majority whip", 43, "rep"]],
+  ["House Minority Leader", ["House minority leader", 44, "rep"]],
+  ["House Minority Whip", ["House minority whip", 45, "rep"]],
 ]);
 
 function fullName(person) {
@@ -271,6 +275,13 @@ function nextDay(date) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + 1);
   return value.toISOString().slice(0, 10);
+}
+
+function congressDateRange(congress) {
+  const startYear = 1789 + (congress - 1) * 2;
+  if (congress <= 72) return [`${startYear}-03-04`, `${startYear + 2}-03-04`];
+  if (congress === 73) return ["1933-03-04", "1935-01-03"];
+  return [`${startYear}-01-03`, `${startYear + 2}-01-03`];
 }
 
 function textFromHtml(value) {
@@ -309,15 +320,11 @@ async function senateFloorLeaders() {
     const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
     if (cells.length < 3) continue;
     const congressText = textFromHtml(cells[0].replace(/<span[^>]*display\s*:\s*none[^>]*>[\s\S]*?<\/span>/gi, ""));
-    const congressMatch = congressText.match(/(\d+)(?:st|nd|rd|th) Congress \((\d{4})–(\d{4})\)/);
+    const congressMatch = congressText.match(/(\d+)(?:st|nd|rd|th) Congress/);
     if (!congressMatch) continue;
     const congress = Number(congressMatch[1]);
-    const startYear = Number(congressMatch[2]);
-    const endYear = Number(congressMatch[3]);
-    const monthDay = congress <= 73 ? "03-04" : "01-03";
-    const congressStart = `${startYear}-${monthDay}`;
-    const congressEnd = `${endYear}-${monthDay}`;
-    for (const [cellIndex, title, order] of [[1, "Senate majority leader", 42], [2, "Senate minority leader", 43]]) {
+    const [congressStart, congressEnd] = congressDateRange(congress);
+    for (const [cellIndex, title, order] of [[1, "Senate majority leader", 42], [2, "Senate minority leader", 44]]) {
       const people = [...cells[cellIndex].matchAll(/<a[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>\s*\(([DRI])-([A-Z]{2})\)<\/a>/g)]
         .map((match) => ({ name: textFromHtml(match[1]), party: match[2] === "D" ? "Democrat" : match[2] === "R" ? "Republican" : "Independent" }));
       const dates = transitions.get(`${congress}|${title}`) ?? [];
@@ -340,13 +347,13 @@ async function senateFloorLeaders() {
     [107, "Senate majority leader", 42, "Thomas A. Daschle", "Democrat", "2001-01-03", "2001-01-20"],
     [107, "Senate majority leader", 42, "Trent Lott", "Republican", "2001-01-20", "2001-06-06"],
     [107, "Senate majority leader", 42, "Thomas A. Daschle", "Democrat", "2001-06-06", "2003-01-03"],
-    [107, "Senate minority leader", 43, "Trent Lott", "Republican", "2001-01-03", "2001-01-20"],
-    [107, "Senate minority leader", 43, "Thomas A. Daschle", "Democrat", "2001-01-20", "2001-06-06"],
-    [107, "Senate minority leader", 43, "Trent Lott", "Republican", "2001-06-06", "2003-01-03"],
+    [107, "Senate minority leader", 44, "Trent Lott", "Republican", "2001-01-03", "2001-01-20"],
+    [107, "Senate minority leader", 44, "Thomas A. Daschle", "Democrat", "2001-01-20", "2001-06-06"],
+    [107, "Senate minority leader", 44, "Trent Lott", "Republican", "2001-06-06", "2003-01-03"],
     [117, "Senate majority leader", 42, "Mitch McConnell", "Republican", "2021-01-03", "2021-01-20"],
     [117, "Senate majority leader", 42, "Charles E. Schumer", "Democrat", "2021-01-20", "2023-01-03"],
-    [117, "Senate minority leader", 43, "Charles E. Schumer", "Democrat", "2021-01-03", "2021-01-20"],
-    [117, "Senate minority leader", 43, "Mitch McConnell", "Republican", "2021-01-20", "2023-01-03"],
+    [117, "Senate minority leader", 44, "Charles E. Schumer", "Democrat", "2021-01-03", "2021-01-20"],
+    [117, "Senate minority leader", 44, "Mitch McConnell", "Republican", "2021-01-20", "2023-01-03"],
   ].map(([congress, title, order, name, party, start, end], index) => ({
     id: `SENATE-${congress}-${title}-${index}`,
     n: name,
@@ -359,6 +366,158 @@ async function senateFloorLeaders() {
     a: start,
     z: end,
   })));
+}
+
+function leadershipYearStart(year) {
+  if (year <= 1933 && year % 2 === 1) return `${year}-03-04`;
+  if (year >= 1935 && year % 2 === 1) return `${year}-01-03`;
+  return `${year}-01-01`;
+}
+
+async function senatePartyWhips(legislators, floorLeaders) {
+  const response = await fetch("https://www.senate.gov/about/parties-leadership/party-whips.htm", {
+    headers: { "User-Agent": "AmericanStateAtlas/1.0" },
+  });
+  if (!response.ok) throw new Error(`Senate whip query failed: ${response.status}`);
+  const html = await response.text();
+  const partyRows = new Map([["Republican", []], ["Democrat", []]]);
+
+  for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+    const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
+    if (cells.length < 2) continue;
+    const identity = cells[0].match(/index=([A-Z]\d+)/i);
+    const partyMatch = textFromHtml(cells[0]).match(/\(([DR])-([A-Z]{2})\)/);
+    const termText = textFromHtml(cells[1].replace(/<span[^>]*display\s*:\s*none[^>]*>[\s\S]*?<\/span>/gi, ""));
+    const term = termText.match(/(\d{4})(?:[-–—](present|\d{4}))?/i);
+    if (!identity || !partyMatch || !term) continue;
+    const party = partyMatch[1] === "R" ? "Republican" : "Democrat";
+    const startYear = Number(term[1]);
+    const endYear = term[2] && term[2].toLowerCase() !== "present" ? Number(term[2]) : null;
+    const person = legislators.find((candidate) => candidate.id.bioguide === identity[1].toUpperCase());
+    const nameMatch = cells[0].match(/<span[^>]*style=""[^>]*>([\s\S]*?)<\/span>/);
+    partyRows.get(party).push({
+      id: identity[1].toUpperCase(),
+      n: person ? fullName(person) : textFromHtml(nameMatch?.[1] ?? cells[0]).replace(/\s*\([DR]-[A-Z]{2}\)\s*$/, ""),
+      p: party,
+      w: legislatorWikipediaUrl(person),
+      a: party === "Democrat" && startYear === 1913 ? "1913-05-28" : leadershipYearStart(startYear),
+      listedEnd: endYear ? leadershipYearStart(endYear) : null,
+    });
+  }
+
+  const whips = [];
+  for (const rows of partyRows.values()) {
+    rows.sort((a, b) => a.a.localeCompare(b.a));
+    rows.forEach((row, index) => {
+      const end = row.listedEnd && (!rows[index + 1] || row.listedEnd < rows[index + 1].a)
+        ? row.listedEnd
+        : rows[index + 1]?.a ?? null;
+      for (const leader of floorLeaders.filter((candidate) => candidate.t === "Senate majority leader" && candidate.p)) {
+        const start = row.a > leader.a ? row.a : leader.a;
+        const finish = !end ? leader.z : !leader.z ? end : end < leader.z ? end : leader.z;
+        if (finish && start >= finish) continue;
+        const majority = leader.p === row.p;
+        whips.push({
+          id: row.id,
+          n: row.n,
+          t: majority ? "Senate majority whip" : "Senate minority whip",
+          g: "Congressional leadership",
+          o: majority ? 43 : 45,
+          h: "sen",
+          p: row.p,
+          x: false,
+          w: row.w,
+          a: start,
+          z: finish,
+        });
+      }
+    });
+  }
+  return whips;
+}
+
+function houseMajorityParty(legislators, start, end) {
+  const byParty = new Map();
+  for (const person of legislators) {
+    const party = person.terms.find((term) => term.type === "rep" && term.start < end && term.end >= start)?.party;
+    if (party) byParty.set(party, (byParty.get(party) ?? 0) + 1);
+  }
+  return [...byParty.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+async function housePartyWhips(legislators) {
+  const sources = [
+    ["https://history.house.gov/People/Office/Democratic-Whips/", "Democrat"],
+    ["https://history.house.gov/People/Office/Republican-Whips/", "Republican"],
+  ];
+  const transitions = new Map([
+    ["60|Democrat", ["1908-02-01"]],
+    ["70|Democrat", ["1929-03-03"]],
+    ["77|Democrat", ["1942-06-08"]],
+    ["79|Democrat", ["1946-01-01"]],
+    ["87|Democrat", ["1962-01-10"]],
+    ["101|Democrat", ["1989-06-14"]],
+    ["102|Democrat", ["1991-09-11"]],
+    ["107|Democrat", ["2002-01-15"]],
+    ["72|Republican", ["1932-04-08"]],
+    ["78|Republican", ["1943-06-02"]],
+    ["101|Republican", ["1989-03-22"]],
+    ["113|Republican", ["2014-07-31"]],
+  ]);
+  const whips = [];
+
+  for (const [url, party] of sources) {
+    const response = await fetch(url, { headers: { "User-Agent": "AmericanStateAtlas/1.0" } });
+    if (!response.ok) throw new Error(`House whip query failed: ${response.status}`);
+    const html = await response.text();
+    const rowsByCongress = new Map();
+    for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
+      const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
+      if (cells.length < 3) continue;
+      const congressMatch = textFromHtml(cells[0]).match(/(\d+)(?:st|nd|rd|th)/);
+      if (!congressMatch) continue;
+      const congress = Number(congressMatch[1]);
+      const [start, end] = congressDateRange(congress);
+      const sourceName = textFromHtml(cells[1]);
+      const state = textFromHtml(cells[2]);
+      const surname = sourceName.split(",")[0].replace(/[^A-Z]/g, "");
+      const person = legislators.find((candidate) =>
+        candidate.name.last.toUpperCase().replace(/[^A-Z]/g, "") === surname
+        && candidate.terms.some((term) => term.type === "rep" && term.state === state && term.start < end && term.end >= start),
+      );
+      const people = rowsByCongress.get(congress) ?? [];
+      people.push({
+        id: person?.id.bioguide ?? `HOUSE-WHIP-${party}-${congress}-${people.length}`,
+        n: person ? fullName(person) : sourceName.split(",").reverse().join(" ").trim(),
+        w: legislatorWikipediaUrl(person),
+      });
+      rowsByCongress.set(congress, people);
+    }
+
+    for (const [congress, people] of rowsByCongress) {
+      const [start, end] = congressDateRange(congress);
+      const majority = houseMajorityParty(legislators, start, end) === party;
+      const title = majority ? "House majority whip" : "House minority whip";
+      const order = majority ? 43 : 45;
+      const dates = transitions.get(`${congress}|${party}`) ?? [];
+      people.forEach((person, index) => {
+        const matched = legislators.find((candidate) => candidate.id.bioguide === person.id);
+        const exactRole = matched?.leadership_roles?.find((role) => leadershipRoleMap.get(role.title)?.[0] === title && role.start < end && (!role.end || role.end > start));
+        whips.push({
+          ...person,
+          t: title,
+          g: "Congressional leadership",
+          o: order,
+          h: "rep",
+          p: party,
+          x: false,
+          a: exactRole?.start ?? (index === 0 ? start : dates[index - 1] ?? start),
+          z: exactRole?.end ?? (index < people.length - 1 ? dates[index] ?? end : end),
+        });
+      });
+    }
+  }
+  return whips;
 }
 
 async function houseFloorLeaders(legislators) {
@@ -377,14 +536,11 @@ async function houseFloorLeaders(legislators) {
       const congressMatch = textFromHtml(cells[0]).match(/(\d+)(?:st|nd|rd|th) \((\d{4})–(\d{4})\)/);
       if (!congressMatch) continue;
       const congress = Number(congressMatch[1]);
-      const startYear = Number(congressMatch[2]);
-      const endYear = Number(congressMatch[3]);
       const party = textFromHtml(cells[2]);
       const state = textFromHtml(cells[3]);
       const sourceName = textFromHtml(cells[1]);
       const surname = sourceName.split(",")[0].replace(/[^A-Z]/g, "");
-      const start = congress <= 73 ? `${startYear}-03-04` : `${startYear}-01-03`;
-      const end = congress <= 73 ? `${endYear}-03-04` : `${endYear}-01-03`;
+      const [start, end] = congressDateRange(congress);
       const person = legislators.find((candidate) =>
         candidate.name.last.toUpperCase().replace(/[^A-Z]/g, "") === surname
         && candidate.terms.some((term) => term.type === "rep" && term.state === state && term.party === party && term.start < end && term.end > start),
@@ -497,8 +653,11 @@ officials = officials.filter((official) => ![
   "Secretary of Commerce and Labor",
 ].includes(official.t));
 officials.push(...formerCabinetOfficeholders());
-officials.push(...await senateFloorLeaders());
+const senateLeaders = await senateFloorLeaders();
+officials.push(...senateLeaders);
+officials.push(...await senatePartyWhips(legislators, senateLeaders));
 officials.push(...await houseFloorLeaders(legislators));
+officials.push(...await housePartyWhips(legislators));
 
 officials.push({
   id: "TODD-BLANCHE-ACTING-AG",
@@ -562,6 +721,14 @@ for (const official of officials) {
     official.p = presidents.find((president) => president.a <= official.a && (!president.z || president.z > official.a))?.p ?? null;
   }
 }
+
+officials.push(...officials.filter((official) => official.t === "Vice President").map((official) => ({
+  ...official,
+  t: "President of the Senate",
+  g: "Congressional leadership",
+  o: 40,
+  h: "sen",
+})));
 
 for (const rows of Map.groupBy(officials.filter((official) => official.t !== "Associate Justice"), (official) => official.t).values()) {
   rows.sort((a, b) => a.a.localeCompare(b.a));

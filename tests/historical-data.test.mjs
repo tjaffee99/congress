@@ -62,7 +62,7 @@ test("held left and right arrows accelerate historical date scrubbing", () => {
 });
 
 test("independent senators retain their caucus affiliation", () => {
-  const sanders = members.find((member) => member.id === "S000033" && member.a === "2007-01-04");
+  const sanders = members.find((member) => member.id === "S000033" && member.a === "2007-01-03");
   assert.equal(sanders.p, "Independent");
   assert.equal(sanders.c, "Democrat");
 });
@@ -87,6 +87,23 @@ test("regular Senate terms begin on March 4 rather than the delayed session open
   assert.equal(members.find((member) => member.n === "Edgar Cowan" && member.t === "sen")?.a, "1861-03-04");
   assert.equal(members.find((member) => member.n === "John Conness" && member.t === "sen")?.a, "1863-03-04");
   assert.equal(members.find((member) => member.n === "Francis Kernan" && member.t === "sen")?.a, "1875-03-04");
+});
+
+test("Senate terms begin on the constitutional date across every mass session-opening cohort", () => {
+  const delayedStarts = Map.groupBy(
+    members.filter((member) => {
+      if (member.t !== "sen") return false;
+      const year = Number(member.a.slice(0, 4));
+      const constitutionalStart = `${year}-${year <= 1933 ? "03-04" : "01-03"}`;
+      return year % 2 === 1 && member.a > constitutionalStart && member.a.slice(0, 4) === String(year);
+    }),
+    (member) => member.a,
+  );
+  assert.equal([...delayedStarts.values()].some((cohort) => cohort.length >= 3), false);
+  assert.equal(activeSenate("1921-03-04", "NY").length, 2);
+  assert.equal(activeSenate("1929-03-04", "MI").length, 2);
+  assert.equal(activeSenate("1931-03-04", "MA").length, 2);
+  assert.equal(activeSenate("1933-03-04", "AZ").length, 2);
 });
 
 test("Cabinet offices do not appear before their creation and have one active holder", () => {
@@ -133,13 +150,30 @@ test("the atlas has complete top chamber leadership for its initial 2004 snapsho
     leadership.map((official) => official.t).sort(),
     [
       "House majority leader",
+      "House majority whip",
       "House minority leader",
+      "House minority whip",
+      "President of the Senate",
       "President pro tempore",
       "Senate majority leader",
+      "Senate majority whip",
       "Senate minority leader",
+      "Senate minority whip",
       "Speaker of the House",
     ].sort(),
   );
+});
+
+test("Senate leadership has no parser-created gaps and includes its constitutional presiding officer", () => {
+  for (const date of ["1931-03-04", "1959-01-03", "2004-08-23", "2026-07-26"]) {
+    const leadership = activeOfficials(date).filter((official) => official.g === "Congressional leadership" && official.h === "sen");
+    const titles = new Set(leadership.map((official) => official.t));
+    assert.ok(titles.has("President of the Senate"), date);
+    assert.ok(titles.has("Senate majority leader"), date);
+    assert.ok(titles.has("Senate majority whip"), date);
+    assert.ok(titles.has("Senate minority leader"), date);
+    assert.ok(titles.has("Senate minority whip"), date);
+  }
 });
 
 test("partisan executive officeholders include party affiliation", () => {

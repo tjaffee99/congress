@@ -112,24 +112,24 @@ async function buildMembers() {
     }
   }
 
+  // The source roster often records senators from the day a session first met,
+  // even though their constitutional terms had already begun. Detect those
+  // shared session-opening dates across each incoming cohort and move them to
+  // March 4 (through 1933) or January 3 (after the Twentieth Amendment).
   const delayedSenateCohorts = Map.groupBy(
     terms.filter((term) => {
       if (term.t !== "sen") return false;
-      const match = term.sourceEnd.match(/^(\d{4})-03-03$/);
-      if (!match) return false;
-      const expectedStart = `${Number(match[1]) - 6}-03-04`;
-      return term.sourceStart.slice(0, 4) === expectedStart.slice(0, 4)
-        && term.sourceStart > expectedStart
-        && term.sourceStart < term.sourceEnd;
+      const startYear = Number(term.sourceStart.slice(0, 4));
+      if (startYear < 1789 || startYear % 2 === 0) return false;
+      const officialStart = `${startYear}-${startYear <= 1933 ? "03-04" : "01-03"}`;
+      return term.sourceStart > officialStart && term.sourceStart.slice(0, 4) === String(startYear);
     }),
-    (term) => {
-      const endYear = Number(term.sourceEnd.slice(0, 4));
-      return `${endYear - 6}-03-04|${term.sourceStart}`;
-    },
+    (term) => term.sourceStart,
   );
-  for (const [key, cohort] of delayedSenateCohorts) {
+  for (const [sessionStart, cohort] of delayedSenateCohorts) {
     if (cohort.length < 3) continue;
-    const [expectedStart] = key.split("|");
+    const startYear = Number(sessionStart.slice(0, 4));
+    const expectedStart = `${startYear}-${startYear <= 1933 ? "03-04" : "01-03"}`;
     cohort.forEach((term) => {
       if (!term.overridden) term.a = expectedStart;
     });
