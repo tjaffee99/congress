@@ -46,6 +46,9 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Congress Legislators · Voteview · Wikidata/);
   assert.match(page, /"Anti-Administration": "#789382"/);
   assert.match(page, /PARTY_SEGMENT_ORDER/);
+  assert.match(page, /label\.startsWith\("Independent"\) \? 20/);
+  assert.match(page, /label\.startsWith\("Republican"\) \? 40/);
+  assert.match(page, /: 30\);/);
   assert.match(page, /const OFFICIAL_GROUPS = \["Executive", "Cabinet", "Supreme Court"\]/);
   assert.doesNotMatch(page, /"Cabinet-level", "Supreme Court"/);
   assert.match(page, /High detail/);

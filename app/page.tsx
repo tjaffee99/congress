@@ -87,16 +87,19 @@ const PARTY_COLORS: Record<string, string> = {
   Progressive: "#59847a", "Free Soil": "#6c8454", "American Labor": "#7b5e72", Unknown: "#aaa398",
 };
 const PARTY_SEGMENT_ORDER: Record<string, number> = {
+  "Anti-Administration": 10,
+  "Pro-Administration": 40,
   "Democratic-Republican": 10,
   "Adams-Clay Republican": 11,
   "Crawford Republican": 12,
   "Jackson Republican": 13,
-  Federalist: 20,
-  "Adams-Clay Federalist": 21,
-  "Crawford Federalist": 22,
-  "Jackson Federalist": 23,
+  Federalist: 40,
+  "Adams-Clay Federalist": 41,
+  "Crawford Federalist": 42,
+  "Jackson Federalist": 43,
   Jacksonian: 10,
-  "Anti-Jacksonian": 20,
+  "Anti-Jacksonian": 40,
+  Whig: 40,
 };
 const CAUCUS_COLORS: Record<string, string> = { Democrat: "#91aec2", Republican: "#d99a95" };
 const VACANT_COLOR = "#c8c2b8";
@@ -451,7 +454,12 @@ export default function Home() {
       : "No party majority";
     const segments = [...visualGroups.values()].sort((a, b) => {
       const order = (label: string) => PARTY_SEGMENT_ORDER[label]
-        ?? (label.startsWith("Democrat") ? 0 : label.startsWith("Independent · Democratic") ? 1 : label.startsWith("Independent") ? 2 : label.startsWith("Republican") ? 40 : 30);
+        ?? (label.startsWith("Democrat") ? 0
+          : label.startsWith("Independent · Democratic") ? 1
+            : label.startsWith("Independent · Republican") ? 39
+              : label.startsWith("Independent") ? 20
+                : label.startsWith("Republican") ? 40
+                  : 30);
       return order(a.label) - order(b.label);
     });
     if (vacancies) segments.push({ label: "Vacant", color: VACANT_COLOR, count: vacancies });
