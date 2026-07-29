@@ -733,7 +733,10 @@ function mergeSameOfficeholder(rows) {
     const previous = merged.at(-1);
     const touches = previous?.z && row.a <= nextDay(previous.z);
     const overlapsOpenTerm = previous && !previous.z;
-    if (previous && previous.n === row.n && previous.t === row.t && (touches || overlapsOpenTerm)) {
+    const sameStatus = previous?.x === row.x || previous?.a === row.a;
+    const overlappingTenure = previous && row.a < (previous.z ?? "9999-12-31");
+    const mergeableTenure = sameStatus ? (touches || overlapsOpenTerm) : overlappingTenure;
+    if (previous && previous.n === row.n && previous.t === row.t && mergeableTenure) {
       previous.a = previous.a < row.a ? previous.a : row.a;
       previous.z = !previous.z || !row.z ? null : (previous.z > row.z ? previous.z : row.z);
       previous.p ??= row.p;
@@ -745,6 +748,44 @@ function mergeSameOfficeholder(rows) {
     merged.push({ ...row });
   }
   return merged;
+}
+
+const currentOfficeholderCorrections = [
+  {
+    title: "Secretary of Labor",
+    cutoff: "2026-04-20",
+    replacements: [
+      { id: "CURRENT-LABOR-SONDERLING", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-04-20", z: null },
+    ],
+  },
+  {
+    title: "Secretary of Transportation",
+    cutoff: "2025-01-20",
+    replacements: [
+      { id: "CURRENT-TRANSPORTATION-KALETA", n: "Judith Kaleta", t: "Secretary of Transportation", g: "Cabinet", o: 20, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Judith_Kaleta", a: "2025-01-20", z: "2025-01-28" },
+      { id: "CURRENT-TRANSPORTATION-DUFFY", n: "Sean Duffy", t: "Secretary of Transportation", g: "Cabinet", o: 20, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Sean_Duffy", a: "2025-01-28", z: null },
+    ],
+  },
+  {
+    title: "Director of National Intelligence",
+    cutoff: "2026-06-19",
+    replacements: [
+      { id: "CURRENT-DNI-PULTE", n: "William J. Pulte", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Bill_Pulte", a: "2026-06-19", z: null },
+    ],
+  },
+];
+
+function applyCurrentOfficeholderCorrections(rows) {
+  let corrected = rows;
+  for (const correction of currentOfficeholderCorrections) {
+    corrected = corrected.flatMap((official) => {
+      if (official.t !== correction.title || (official.z && official.z <= correction.cutoff)) return [official];
+      if (official.a < correction.cutoff) return [{ ...official, z: correction.cutoff }];
+      return [];
+    });
+    corrected.push(...correction.replacements);
+  }
+  return corrected;
 }
 
 const root = process.cwd();
@@ -837,6 +878,7 @@ officials.push(...senateLeaders);
 officials.push(...await senatePartyWhips(legislators, senateLeaders));
 officials.push(...await houseFloorLeaders(legislators));
 officials.push(...await housePartyWhips(legislators));
+officials = applyCurrentOfficeholderCorrections(officials);
 
 for (const person of legislators) {
   for (const role of person.leadership_roles ?? []) {

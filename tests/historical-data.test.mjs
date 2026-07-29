@@ -187,6 +187,19 @@ test("Cabinet offices do not appear before their creation and have one active ho
   assert.deepEqual(byTitle.get("Attorney General")?.map((official) => official.n), ["Todd Blanche"]);
 });
 
+test("current Cabinet records distinguish acting and confirmed officeholders", () => {
+  const current = activeCabinet("2026-07-29");
+  const labor = current.find((official) => official.t === "Secretary of Labor");
+  const transportation = current.find((official) => official.t === "Secretary of Transportation");
+  const intelligence = current.find((official) => official.t === "Director of National Intelligence");
+  assert.deepEqual([labor?.n, labor?.x], ["Keith Sonderling", true]);
+  assert.deepEqual([transportation?.n, transportation?.x], ["Sean Duffy", false]);
+  assert.deepEqual([intelligence?.n, intelligence?.x], ["William J. Pulte", true]);
+
+  const transition = activeCabinet("2025-01-24").find((official) => official.t === "Secretary of Transportation");
+  assert.deepEqual([transition?.n, transition?.x, transition?.z], ["Judith Kaleta", true, "2025-01-28"]);
+});
+
 test("Cabinet roster includes confirmed and acting Reagan officials on November 14, 1983", () => {
   const cabinet = activeCabinet("1983-11-14");
   assert.equal(cabinet.find((official) => official.t === "Secretary of Agriculture")?.n, "John R. Block");

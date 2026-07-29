@@ -9500,7 +9500,7 @@
     "h": null,
     "p": null,
     "s": null,
-    "x": false,
+    "x": true,
     "w": "https://en.wikipedia.org/wiki/Keith_Sonderling",
     "a": "2026-04-20",
     "z": null
@@ -10711,7 +10711,7 @@
   },
   {
     "id": "WIKIPEDIA-SECRETARY-OF-TRANSPORTATION-26",
-    "n": "Judith Kaleta",
+    "n": "Sean Duffy",
     "t": "Secretary of Transportation",
     "g": "Cabinet",
     "o": 20,
@@ -10719,7 +10719,7 @@
     "p": null,
     "s": null,
     "x": false,
-    "w": "https://en.wikipedia.org/wiki/Judith_Kaleta",
+    "w": "https://en.wikipedia.org/wiki/Sean_Duffy",
     "a": "2025-01-28",
     "z": null
   },

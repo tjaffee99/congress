@@ -141,6 +141,21 @@ async function scrapeOffice([title, page, order, created, discontinued]) {
       unique.push({ ...stanton, id: `${stanton.id}-RETURNED`, a: grant.z, z: originalEnd });
     }
   }
+  // Wikipedia's current-officeholder rows sometimes omit the `fn` class used
+  // by the historical table, causing the parser to carry the prior acting
+  // officeholder forward. Keep these current transitions explicit.
+  if (title === "Secretary of Labor") {
+    const sonderling = unique.find((holder) => holder.a === "2026-04-20");
+    if (sonderling) sonderling.x = true;
+  }
+  if (title === "Secretary of Transportation") {
+    const duffy = unique.find((holder) => holder.a === "2025-01-28");
+    if (duffy) Object.assign(duffy, {
+      n: "Sean Duffy",
+      x: false,
+      w: "https://en.wikipedia.org/wiki/Sean_Duffy",
+    });
+  }
   if (!unique.length) throw new Error(`${title}: no officeholders parsed`);
   console.log(`${title}: ${unique.length} tenures`);
   return unique;
