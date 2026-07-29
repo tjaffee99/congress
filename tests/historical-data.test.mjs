@@ -88,6 +88,27 @@ test("the modern Republican label never appears before the party existed", () =>
   assert.equal(anachronistic.length, 0);
 });
 
+test("numbered House districts have only one occupant throughout the 31st Congress", () => {
+  const terms = members.filter((member) =>
+    member.t === "rep"
+    && member.d > 0
+    && member.a < "1851-03-04"
+    && member.z > "1849-03-04"
+  );
+  const byDistrict = Map.groupBy(terms, (member) => `${member.s}-${member.d}`);
+  const overlaps = [];
+  for (const [district, occupants] of byDistrict) {
+    for (let left = 0; left < occupants.length; left += 1) {
+      for (let right = left + 1; right < occupants.length; right += 1) {
+        const a = occupants[left];
+        const b = occupants[right];
+        if (a.id !== b.id && a.a < b.z && b.a < a.z) overlaps.push(`${district}: ${a.n} / ${b.n}`);
+      }
+    }
+  }
+  assert.deepEqual(overlaps, []);
+});
+
 test("early congressional party affiliations do not fall back to Unknown", () => {
   for (let congress = 1; congress <= 33; congress += 1) {
     const date = `${1787 + congress * 2}-12-31`;
