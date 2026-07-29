@@ -44,6 +44,8 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /\["1800-01-01", "1800"\]/);
   assert.match(page, /\["2000-01-01", "2000"\]/);
   assert.match(page, /wikipediaHref/);
+  assert.match(page, /Made by Theo Jaffee/);
+  assert.match(page, /https:\/\/x\.com\/theojaffee/);
   assert.match(page, /governmentTermWikipediaHref/);
   assert.match(page, /\$\{congressOrdinal\(congress\)\}_United_States_Congress/);
   assert.match(page, /className="congress-link"/);

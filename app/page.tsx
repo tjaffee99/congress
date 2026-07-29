@@ -961,6 +961,7 @@ export default function Home() {
           <span className="brand-mark" aria-hidden="true" />
           <span><strong>American Atlas</strong><small>A day-by-day look at US government</small></span>
         </a>
+        <a className="site-credit" href="https://x.com/theojaffee" target="_blank" rel="noreferrer">Made by Theo Jaffee</a>
       </header>
 
       <section className="atlas-shell" id="atlas">
@@ -1244,7 +1245,7 @@ export default function Home() {
 
       <footer id="sources">
         <p><strong>Sources:</strong> U.S. House History · UCLA Congressional District Boundaries · U.S. Census Bureau · Newberry Library · Congress Legislators · Voteview · Wikidata</p>
-        <small>Research interface · vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly.</small>
+        <small>Research interface · vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly. · <a href="https://x.com/theojaffee" target="_blank" rel="noreferrer">Made by Theo Jaffee</a></small>
       </footer>
     </main>
   );
