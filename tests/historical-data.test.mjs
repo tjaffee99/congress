@@ -27,6 +27,23 @@ function activeSenate(date, state) {
   return members.filter((member) => member.t === "sen" && member.s === state && member.a <= date && member.z > date);
 }
 
+function admittedStateCodes(date) {
+  const numericDate = Number(date.replaceAll("-", ""));
+  return new Set(polities
+    .filter((polity) => {
+      if (polity.properties.TERR_TYPE !== "State") return false;
+      const start = polity.properties.START_N ?? 0;
+      const end = polity.properties.END_N ?? 20001231;
+      return start <= numericDate && (end >= numericDate || (end === 20001231 && numericDate > end));
+    })
+    .map((polity) => polity.properties.ABBR_NAME));
+}
+
+function activeVotingMembers(date, chamber) {
+  const admitted = admittedStateCodes(date);
+  return members.filter((member) => member.t === chamber && admitted.has(member.s) && member.a <= date && member.z > date);
+}
+
 function activeOfficials(date) {
   return officials.filter((official) => official.a <= date && (!official.z || official.z > date));
 }
@@ -114,6 +131,26 @@ test("Massachusetts 4th has its sole 32nd-Congress occupant on March 28, 1851", 
     .filter((member) => member.s === "MA" && member.d === 4)
     .map((member) => member.n);
   assert.deepEqual(occupants, ["Benjamin Thompson"]);
+});
+
+test("California receives no congressional delegation before statehood and the correct first House delegation afterward", () => {
+  assert.deepEqual(activeVotingMembers("1849-03-04", "rep").filter((member) => member.s === "CA"), []);
+  assert.deepEqual(activeVotingMembers("1850-09-08", "rep").filter((member) => member.s === "CA"), []);
+  assert.deepEqual(
+    activeVotingMembers("1850-09-11", "rep")
+      .filter((member) => member.s === "CA")
+      .map((member) => [member.n, member.p])
+      .sort(),
+    [["Edward Gilbert", "Democrat"], ["George Washington Wright", "Independent"]],
+  );
+  assert.equal(members.some((member) => member.id === "G000171" && member.t === "rep"), false);
+  assert.deepEqual(
+    activeVotingMembers("1850-09-09", "sen")
+      .filter((member) => member.s === "CA")
+      .map((member) => member.n)
+      .sort(),
+    ["John Charles Frémont", "William McKendree Gwin"],
+  );
 });
 
 test("House tenure records contain no duplicate or self-overlapping service", () => {

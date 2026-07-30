@@ -141,6 +141,16 @@ const TERM_OVERRIDES = new Map([
   ["R000360:1823-12-01:1825-03-03", { start: "1823-03-04", end: "1823-04-21", party: "Crawford Republican" }],
   ["M000079:1831-12-05:1833-03-03", { start: "1831-03-04", end: "1831-04-15", party: "Anti-Jackson" }],
   ["C000482:1825-12-05:1827-03-03", { party: "Anti-Jacksonian" }],
+  ["F000374:1850-01-01:1851-03-03", { start: "1850-09-09" }],
+  ["G000540:1850-09-10:1855-03-03", { start: "1850-09-09" }],
+]);
+
+// The upstream unitedstates/congress-legislators roster incorrectly gives
+// Florida senator Abijah Gilbert a second, fictional House term from
+// California. California's actual first House delegation was Edward Gilbert
+// and George Washington Wright, seated after statehood in September 1850.
+const INVALID_TERMS = new Set([
+  "G000171:rep:CA:1849-12-03:1851-03-03",
 ]);
 
 const MANUAL_TERMS = [
@@ -192,6 +202,7 @@ async function buildMembers() {
   );
   const terms = people.flatMap((person) =>
     person.terms.flatMap((term) => {
+      if (INVALID_TERMS.has(`${person.id.bioguide}:${term.type}:${term.state}:${term.start}:${term.end}`)) return [];
       const override = TERM_OVERRIDES.get(`${person.id.bioguide}:${term.start}:${term.end}`);
       const firstCongress = congressForDate(override?.start ?? term.start);
       const lastCongress = congressForDate(previousDay(override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end)));

@@ -376,36 +376,6 @@ export default function Home() {
     }
     return { house, senate };
   }, [federalMembers]);
-  const activeHouseMembers = useMemo(
-    () => (membersByCongress.house.get(congress) ?? []).filter((member) => !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
-    [congress, date, membersByCongress],
-  );
-  const activeMembers = useMemo(() => {
-    if (chamber === "rep") return activeHouseMembers;
-    if (chamber === "congress") {
-      return preconstitutionalMembers.filter((member) => member.a <= date && member.z > date);
-    }
-    const candidates = (membersByCongress.senate.get(congress) ?? []).filter((member) => !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date);
-    const bySeat = new Map<string, Member>();
-    for (const member of candidates) {
-      const key = `${member.s}:${member.k ?? member.id}`;
-      const incumbent = bySeat.get(key);
-      if (!incumbent || member.z > incumbent.z || (member.z === incumbent.z && member.a > incumbent.a)) bySeat.set(key, member);
-    }
-    return [...bySeat.values()].sort((a, b) => a.s.localeCompare(b.s) || (a.k ?? 0) - (b.k ?? 0));
-  }, [activeHouseMembers, chamber, congress, date, membersByCongress, preconstitutionalMembers]);
-  const activeOfficials = useMemo(
-    () => officials.filter((official) => official.a <= date && (!official.z || official.z > date)),
-    [officials, date],
-  );
-  const resolvedActiveOfficials = useMemo(() => {
-    const byOffice = Map.groupBy(activeOfficials, (official) => official.t);
-    return [...byOffice.entries()].flatMap(([title, rows]) => {
-      const unique = [...new Map(rows.map((row) => [`${row.id}-${row.a}`, row])).values()];
-      if (title === "Associate Justice" || title === "Counselor to the President") return unique;
-      return unique.sort((a, b) => b.a.localeCompare(a.a)).slice(0, 1);
-    });
-  }, [activeOfficials]);
   const numericDate = Number(date.replaceAll("-", ""));
   const activePolities = useMemo(
     () => {
@@ -433,6 +403,42 @@ export default function Home() {
     () => activePolities.filter((polity) => polity.properties.TERR_TYPE === "State"),
     [activePolities],
   );
+  const activeStateCodes = useMemo(
+    () => new Set(activeStates
+      .map((state) => STATE_ABBR[state.properties.NAME ?? state.properties.name ?? ""])
+      .filter((state): state is string => Boolean(state))),
+    [activeStates],
+  );
+  const activeHouseMembers = useMemo(
+    () => (membersByCongress.house.get(congress) ?? []).filter((member) => activeStateCodes.has(member.s) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date),
+    [activeStateCodes, congress, date, membersByCongress],
+  );
+  const activeMembers = useMemo(() => {
+    if (chamber === "rep") return activeHouseMembers;
+    if (chamber === "congress") {
+      return preconstitutionalMembers.filter((member) => member.a <= date && member.z > date);
+    }
+    const candidates = (membersByCongress.senate.get(congress) ?? []).filter((member) => activeStateCodes.has(member.s) && !isConfederateState(member.s, date) && !reconstructionDistrictForState(member.s, date) && member.a <= date && member.z > date);
+    const bySeat = new Map<string, Member>();
+    for (const member of candidates) {
+      const key = `${member.s}:${member.k ?? member.id}`;
+      const incumbent = bySeat.get(key);
+      if (!incumbent || member.z > incumbent.z || (member.z === incumbent.z && member.a > incumbent.a)) bySeat.set(key, member);
+    }
+    return [...bySeat.values()].sort((a, b) => a.s.localeCompare(b.s) || (a.k ?? 0) - (b.k ?? 0));
+  }, [activeHouseMembers, activeStateCodes, chamber, congress, date, membersByCongress, preconstitutionalMembers]);
+  const activeOfficials = useMemo(
+    () => officials.filter((official) => official.a <= date && (!official.z || official.z > date)),
+    [officials, date],
+  );
+  const resolvedActiveOfficials = useMemo(() => {
+    const byOffice = Map.groupBy(activeOfficials, (official) => official.t);
+    return [...byOffice.entries()].flatMap(([title, rows]) => {
+      const unique = [...new Map(rows.map((row) => [`${row.id}-${row.a}`, row])).values()];
+      if (title === "Associate Justice" || title === "Counselor to the President") return unique;
+      return unique.sort((a, b) => b.a.localeCompare(a.a)).slice(0, 1);
+    });
+  }, [activeOfficials]);
   const houseSeatCapacity = useMemo(() => {
     if (congress < 1) return 0;
     const [congressStart, congressEnd] = congressDates(congress);
@@ -502,12 +508,13 @@ export default function Home() {
       const stateName = mapFeature.properties.statename;
       const state = STATE_ABBR[stateName ?? ""];
       const district = mapFeature.properties.district ?? 0;
+      if (!state || !activeStateCodes.has(state)) return false;
       const hasNumberedDistricts = numberedStates.has(stateName) && activeNumberedStates.has(state);
       if (district > 0 && !hasNumberedDistricts) return false;
       if (!houseBoundaryBelongsToPlan(activeHouseMembers, state, district, hasNumberedDistricts)) return false;
       return district !== 0 || !houseStatewideAtLargeMembers(activeHouseMembers, state, hasNumberedDistricts).length;
     });
-  }, [activeHouseMembers, districts]);
+  }, [activeHouseMembers, activeStateCodes, districts]);
   const atLargeFallbackDistricts = useMemo(() => {
     const statesWithBoundary = new Set(
       districts
