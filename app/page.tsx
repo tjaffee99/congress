@@ -996,7 +996,9 @@ export default function Home() {
                 target="_blank"
                 rel="noreferrer"
               >{governmentLabel}</a>
-              <strong>{termSeatCount}</strong>
+              <strong className="term-seat-count">
+                {isPreconstitutional || !hasFederalSeatData ? termSeatCount : <><span>{activeMembers.length}</span><span>/{chamberSummary.seatTotal}</span></>}
+              </strong>
               <small>{isPreconstitutional ? "delegates recorded this year" : chamber === "rep" ? "House seats filled / allotted" : "Senate seats filled / allotted"}</small>
             </div>
           </div>
