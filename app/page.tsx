@@ -927,6 +927,11 @@ export default function Home() {
   const timelineMarks = [...TIMELINE_MARKS, [today, "2026"]] as const;
   const isPreconstitutional = chamber === "congress";
   const governmentLabel = governmentTermLabel(date, congress);
+  const hasFederalSeatData = federalMembers.length > 0
+    && (chamber === "rep" ? chamberSummary.seatTotal > 0 : activeStates.length > 0);
+  const termSeatCount = isPreconstitutional
+    ? (preconstitutionalMembers.length > 0 ? String(activeMembers.length) : "—")
+    : (hasFederalSeatData ? `${activeMembers.length}/${chamberSummary.seatTotal}` : "—");
   const presidingOfficer = isPreconstitutional ? presidentOfCongress(date) : null;
   const representedDelegations = new Set(activeMembers.map((member) => member.s)).size;
   const hasConfederateGeography = activeStates.some(isConfederateFeature);
@@ -984,7 +989,16 @@ export default function Home() {
               />
             </label>
             <button className="step-button" onClick={() => changeDate(fromDay(Math.min(maxDay, toDay(date) + 1)))} aria-label="Next day">→</button>
-            <div className="term-card"><span>{governmentLabel}</span><strong>{activeMembers.length || "—"}</strong><small>{isPreconstitutional ? "delegates recorded this year" : chamber === "rep" ? "House seats filled" : "Senate seats filled"}</small></div>
+            <div className="term-card">
+              <a
+                className="term-card-congress"
+                href={governmentTermWikipediaHref(date, congress)}
+                target="_blank"
+                rel="noreferrer"
+              >{governmentLabel}</a>
+              <strong>{termSeatCount}</strong>
+              <small>{isPreconstitutional ? "delegates recorded this year" : chamber === "rep" ? "House seats filled / allotted" : "Senate seats filled / allotted"}</small>
+            </div>
           </div>
 
           <div className="slider-wrap">

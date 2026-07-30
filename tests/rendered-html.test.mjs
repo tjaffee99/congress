@@ -49,6 +49,10 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /governmentTermWikipediaHref/);
   assert.match(page, /\$\{congressOrdinal\(congress\)\}_United_States_Congress/);
   assert.match(page, /className="congress-link"/);
+  assert.match(page, /className="term-card-congress"/);
+  assert.match(page, /\$\{activeMembers\.length\}\/\$\{chamberSummary\.seatTotal\}/);
+  assert.match(page, /House seats filled \/ allotted/);
+  assert.match(page, /Senate seats filled \/ allotted/);
   assert.match(page, /Congress Legislators · Voteview · Wikidata/);
   assert.match(page, /"Anti-Administration": "#789382"/);
   assert.match(page, /PARTY_SEGMENT_ORDER/);
