@@ -81,8 +81,11 @@ test("the product source contains the historical map and no starter preview", as
   assert.doesNotMatch(page, /const y = pinned\s*\?\s*8/);
   assert.match(page, /tooltip-close/);
   assert.match(page, /onDoubleClick=\{chamber === "rep"/);
+  assert.match(page, /event\.preventDefault\(\)/);
   assert.match(page, /scope === "delegation"/);
   assert.match(page, /U\.S\. House delegation/);
+  assert.match(page, /<em>Vacant<\/em>/);
+  assert.match(page, /seats filled/);
   assert.match(page, /historicalStateOverlayPathElements/);
   assert.match(page, /mixedDistrictPatternId/);
   assert.match(page, /Statewide at large/);

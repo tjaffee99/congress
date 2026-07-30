@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { feature } from "topojson-client";
 import { isConfederateState } from "../app/confederate-state.mjs";
-import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "../app/house-members.mjs";
+import { houseBoundaryBelongsToPlan, houseDelegationRows, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "../app/house-members.mjs";
 import { reconstructionDistrictForState } from "../app/reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "../app/date-scrub.mjs";
 import { preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "../app/preconstitutional.mjs";
@@ -124,6 +124,28 @@ test("single-member House districts never have overlapping occupants", () => {
     }
   }
   assert.deepEqual(overlaps, []);
+});
+
+test("state delegation rows preserve vacant numbered House seats", () => {
+  const rows = houseDelegationRows([
+    { id: "CA13", n: "District Thirteen", s: "CA", d: 13 },
+    { id: "CA15", n: "District Fifteen", s: "CA", d: 15 },
+  ], "CA", [13, 14, 15], 3);
+  assert.deepEqual(rows.map((row) => [row.label, row.member?.id ?? null]), [
+    ["District 13", "CA13"],
+    ["District 14", null],
+    ["District 15", "CA15"],
+  ]);
+});
+
+test("state delegation rows pad historical at-large vacancies to the allotted seats", () => {
+  const rows = houseDelegationRows([
+    { id: "CA-AL", n: "At Large Member", s: "CA", d: -1 },
+  ], "CA", [0], 2);
+  assert.deepEqual(rows.map((row) => [row.label, row.member?.id ?? null]), [
+    ["At large", "CA-AL"],
+    ["At large", null],
+  ]);
 });
 
 test("Massachusetts 4th has its sole 32nd-Congress occupant on March 28, 1851", () => {

@@ -6,7 +6,7 @@ import { feature, merge } from "topojson-client";
 import type { Feature, FeatureCollection, GeoJsonProperties, Geometry } from "geojson";
 import type { GeometryCollection, Topology } from "topojson-specification";
 import { isConfederateState } from "./confederate-state.mjs";
-import { houseBoundaryBelongsToPlan, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "./house-members.mjs";
+import { houseBoundaryBelongsToPlan, houseDelegationRows, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
 import { clampZoom, isLikelyMouseWheel } from "./map-input.mjs";
@@ -449,6 +449,19 @@ export default function Home() {
       .map((point) => terms.filter((term) => term.a <= point && term.z > point).length));
     return congress >= 63 ? Math.max(435, observed) : observed;
   }, [congress, members]);
+  const houseSeatCapacityByState = useMemo(() => {
+    if (congress < 1) return new Map<string, number>();
+    const [congressStart, congressEnd] = congressDates(congress);
+    const termsByState = Map.groupBy(
+      members.filter((member) => member.t === "rep" && STATE_CODES.has(member.s) && member.a < congressEnd && member.z > congressStart),
+      (member) => member.s,
+    );
+    return new Map([...termsByState].map(([state, terms]) => {
+      const observed = Math.max(0, ...[congressStart, ...terms.map((term) => term.a)]
+        .map((point) => terms.filter((term) => term.a <= point && term.z > point).length));
+      return [state, observed];
+    }));
+  }, [congress, members]);
   const chamberSummary = useMemo(() => {
     if (chamber === "congress") {
       const representedStates = new Set(activeMembers.map((member) => member.s)).size;
@@ -700,6 +713,7 @@ export default function Home() {
           }}
           onDoubleClick={chamber === "rep" ? (event) => {
             if (didPanRef.current) return;
+            event.preventDefault();
             event.stopPropagation();
             placeTooltip(event.clientX, event.clientY, mapFeature, true, null, "delegation");
           } : undefined}
@@ -965,11 +979,16 @@ export default function Home() {
   const tooltipStatewideAtLargeMembers = tooltip && chamber === "rep" && !tooltip.labelOnly
     ? statewideAtLargeMembersForDistrict(tooltip.feature)
     : [];
-  const tooltipHouseDelegation = tooltip && chamber === "rep" && tooltip.scope === "delegation" && !tooltip.labelOnly
-    ? activeHouseMembers
-      .filter((member) => member.s === STATE_ABBR[tooltip.feature.properties.statename ?? ""])
-      .sort((a, b) => (a.d ?? -1) - (b.d ?? -1) || a.n.localeCompare(b.n))
-    : [];
+  const tooltipHouseDelegation = useMemo(() => {
+    if (!tooltip || chamber !== "rep" || tooltip.scope !== "delegation" || tooltip.labelOnly) return [];
+    const stateName = tooltip.feature.properties.statename ?? "";
+    const state = STATE_ABBR[stateName];
+    const districtNumbers = houseMapFeatures
+      .filter((mapFeature) => mapFeature.properties.statename === stateName)
+      .map((mapFeature) => mapFeature.properties.district ?? 0);
+    return houseDelegationRows(activeHouseMembers, state, districtNumbers, houseSeatCapacityByState.get(state) ?? 0);
+  }, [activeHouseMembers, chamber, houseMapFeatures, houseSeatCapacityByState, tooltip]);
+  const tooltipHouseDelegationFilled = tooltipHouseDelegation.filter((seat) => seat.member).length;
   const hasMixedDelegation = chamber === "rep" && visibleDistricts.some(
     (mapFeature) => statewideAtLargeMembersForDistrict(mapFeature).length > 0,
   );
@@ -1196,8 +1215,10 @@ export default function Home() {
                   tooltip.scope === "delegation" ? (
                     <>
                       <strong>{tooltip.feature.properties.statename}</strong>
-                      <span>U.S. House delegation · {tooltipHouseDelegation.length} members</span>
-                      {tooltipHouseDelegation.map((member) => <div className="house-member delegation-member" key={`${member.id}-${member.d}`}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{(member.d ?? 0) > 0 ? `District ${member.d}` : "At large"} · {partyLabel(member)}</small></div>)}
+                      <span>U.S. House delegation · {tooltipHouseDelegationFilled}/{tooltipHouseDelegation.length} seats filled</span>
+                      {tooltipHouseDelegation.map((seat, index) => seat.member
+                        ? <div className="house-member delegation-member" key={`${seat.member.id}-${seat.label}`}><i style={{ background: colorForMember(seat.member) }} /><b><a href={wikipediaHref(seat.member)} target="_blank" rel="noreferrer">{seat.member.n}</a></b><small>{seat.label} · {partyLabel(seat.member)}</small></div>
+                        : <div className="house-member delegation-member vacant-delegation-seat" key={`vacant-${seat.label}-${index}`}><i /><b><em>Vacant</em></b><small>{seat.label}</small></div>)}
                       {!tooltipHouseDelegation.length && <p>No seated representatives are listed for this state on this date.</p>}
                     </>
                   ) : (

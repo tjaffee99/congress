@@ -76,3 +76,41 @@ export function houseBoundaryBelongsToPlan(planMembers, state, district, hasNumb
   if (district > 0 || !hasNumberedDistricts) return true;
   return planMembers.some((member) => member.s === state && (member.d === 0 || member.d === -1));
 }
+
+/**
+ * Build a complete, ordered state delegation for the statewide detail card.
+ * Numbered districts without an occupant remain in the result as vacant seats;
+ * historical at-large plans are padded to their known state seat capacity.
+ *
+ * @template {{ id: string, n: string, s: string, d: number | null }} T
+ * @param {T[]} members
+ * @param {string | undefined} state
+ * @param {number[]} districtNumbers
+ * @param {number} seatCapacity
+ * @returns {{ member: T | null, label: string }[]}
+ */
+export function houseDelegationRows(members, state, districtNumbers, seatCapacity = 0) {
+  if (!state) return [];
+  const delegation = members.filter((member) => member.s === state);
+  const numbered = [...new Set(districtNumbers.filter((district) => district > 0))].sort((a, b) => a - b);
+  const rows = delegation
+    .filter((member) => (member.d ?? 0) <= 0)
+    .sort((a, b) => a.n.localeCompare(b.n))
+    .map((member) => ({ member, label: "At large" }));
+
+  if (numbered.length) {
+    for (const district of numbered) {
+      const occupants = delegation
+        .filter((member) => member.d === district)
+        .sort((a, b) => a.n.localeCompare(b.n));
+      if (occupants.length) rows.push(...occupants.map((member) => ({ member, label: `District ${district}` })));
+      else rows.push({ member: null, label: `District ${district}` });
+    }
+  } else {
+    const expectedSeats = Math.max(seatCapacity, rows.length, 1);
+    while (rows.length < expectedSeats) rows.push({ member: null, label: "At large" });
+  }
+
+  while (rows.length < seatCapacity) rows.push({ member: null, label: "At large" });
+  return rows;
+}
