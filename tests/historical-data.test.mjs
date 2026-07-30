@@ -36,8 +36,9 @@ function activeCabinet(date) {
   return activeOfficials(date).filter((official) => ["Cabinet", "Cabinet-level"].includes(official.g) && visibleTitles.has(official.t));
 }
 
-test("the Second Congress begins with its 69-member elected House", () => {
-  assert.equal(activeHouse("1791-03-04").length, 69);
+test("the Second Congress opens with its seated delegation rather than a one-member artifact", () => {
+  assert.equal(activeHouse("1791-03-04").length, 62);
+  assert.ok(activeHouse("1792-12-01").length >= 68);
 });
 
 test("the First Congress uses Pro- and Anti-Administration affiliations", () => {
@@ -88,12 +89,11 @@ test("the modern Republican label never appears before the party existed", () =>
   assert.equal(anachronistic.length, 0);
 });
 
-test("numbered House districts have only one occupant throughout the 31st Congress", () => {
+test("single-member House districts never have overlapping occupants", () => {
   const terms = members.filter((member) =>
     member.t === "rep"
     && member.d > 0
-    && member.a < "1851-03-04"
-    && member.z > "1849-03-04"
+    && member.a >= "1843-03-04"
   );
   const byDistrict = Map.groupBy(terms, (member) => `${member.s}-${member.d}`);
   const overlaps = [];
@@ -103,6 +103,35 @@ test("numbered House districts have only one occupant throughout the 31st Congre
         const a = occupants[left];
         const b = occupants[right];
         if (a.id !== b.id && a.a < b.z && b.a < a.z) overlaps.push(`${district}: ${a.n} / ${b.n}`);
+      }
+    }
+  }
+  assert.deepEqual(overlaps, []);
+});
+
+test("Massachusetts 4th has its sole 32nd-Congress occupant on March 28, 1851", () => {
+  const occupants = activeHouse("1851-03-28")
+    .filter((member) => member.s === "MA" && member.d === 4)
+    .map((member) => member.n);
+  assert.deepEqual(occupants, ["Benjamin Thompson"]);
+});
+
+test("House tenure records contain no duplicate or self-overlapping service", () => {
+  const house = members.filter((member) => member.t === "rep");
+  const exact = Map.groupBy(
+    house,
+    (member) => [member.id, member.s, member.d, member.a, member.z].join("|"),
+  );
+  assert.deepEqual([...exact.values()].filter((records) => records.length > 1), []);
+
+  const byMember = Map.groupBy(house, (member) => member.id);
+  const overlaps = [];
+  for (const [id, terms] of byMember) {
+    for (let left = 0; left < terms.length; left += 1) {
+      for (let right = left + 1; right < terms.length; right += 1) {
+        const a = terms[left];
+        const b = terms[right];
+        if (a.a < b.z && b.a < a.z) overlaps.push(`${id}: ${a.a}-${a.z} / ${b.a}-${b.z}`);
       }
     }
   }
@@ -332,7 +361,7 @@ test("historical at-large boundaries find members recorded with district -1", ()
 });
 
 test("single-district at-large states find members recorded as district 1", () => {
-  const delegation = houseMembersForDistrict(activeHouse("1790-06-01"), "RI", 0, false);
+  const delegation = houseMembersForDistrict(activeHouse("1790-12-18"), "RI", 0, false);
   assert.deepEqual(delegation.map((member) => member.n), ["Benjamin Bourne"]);
 });
 

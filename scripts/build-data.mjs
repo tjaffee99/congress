@@ -141,31 +141,6 @@ const TERM_OVERRIDES = new Map([
   ["R000360:1823-12-01:1825-03-03", { start: "1823-03-04", end: "1823-04-21", party: "Crawford Republican" }],
   ["M000079:1831-12-05:1833-03-03", { start: "1831-03-04", end: "1831-04-15", party: "Anti-Jackson" }],
   ["C000482:1825-12-05:1827-03-03", { party: "Anti-Jacksonian" }],
-
-  // The source roster assigns session-wide dates to many special-election
-  // successions in the 31st Congress. The official annotated House roster
-  // records the actual deaths, resignations, vacancies, and seating dates.
-  ["K000215:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-03-04" }],
-  ["J000023:1849-12-03:1851-03-03", { start: "1850-03-04", end: "1851-03-04" }],
-  ["M000721:1849-12-03:1851-03-03", { start: "1850-12-20", end: "1851-03-04" }],
-  ["T000223:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-06-30" }],
-  ["C000703:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-08-18" }],
-  ["B001049:1849-12-03:1851-03-03", { start: "1850-12-05", end: "1851-03-04" }],
-  ["H000214:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-10-26" }],
-  ["P000210:1849-12-03:1851-03-03", { start: "1850-12-30", end: "1851-03-04" }],
-  ["W000587:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-09-10" }],
-  ["M000994:1849-12-03:1851-03-03", { start: "1850-12-02", end: "1851-03-04" }],
-  ["D000325:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1849-03-21" }],
-  ["W000689:1849-12-03:1851-03-03", { start: "1849-12-03", end: "1850-11-20" }],
-  ["B000339:1849-12-03:1851-03-03", { start: "1851-01-07", end: "1851-03-04" }],
-  ["N000047:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-09-11" }],
-  ["D000045:1849-12-03:1851-03-03", { start: "1850-12-02", end: "1851-03-04" }],
-  ["B001175:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1850-10-06" }],
-  ["B000841:1849-12-03:1851-03-03", { start: "1851-01-13", end: "1851-03-04" }],
-  ["M000147:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1849-05-30" }],
-  ["M000613:1849-12-03:1851-03-03", { start: "1849-12-03", end: "1851-03-04" }],
-  ["N000070:1849-12-03:1851-03-03", { start: "1849-03-04", end: "1849-09-09" }],
-  ["H000395:1849-12-03:1851-03-03", { start: "1849-12-03", end: "1851-03-04" }],
 ]);
 
 const MANUAL_TERMS = [
@@ -208,8 +183,15 @@ async function buildMembers() {
   }
 
   const voteviewParties = await voteviewPartyAffiliations();
+  const houseCorrections = JSON.parse(
+    await readFile(path.join(root, "scripts/data/house-tenure-corrections.json"), "utf8"),
+  );
+  const houseCorrectionsByTerm = Map.groupBy(
+    houseCorrections,
+    (correction) => `${correction.id}:${correction.congress}`,
+  );
   const terms = people.flatMap((person) =>
-    person.terms.map((term) => {
+    person.terms.flatMap((term) => {
       const override = TERM_OVERRIDES.get(`${person.id.bioguide}:${term.start}:${term.end}`);
       const firstCongress = congressForDate(override?.start ?? term.start);
       const lastCongress = congressForDate(previousDay(override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end)));
@@ -230,7 +212,7 @@ async function buildMembers() {
       const firstVoteviewParty = Object.entries(partiesByCongress).sort((a, b) => Number(a[0]) - Number(b[0]))[0]?.[1];
       const party = firstVoteviewParty ?? sourceParty;
       const partyChanges = Object.fromEntries(Object.entries(partiesByCongress).filter(([, value]) => value !== party));
-      return {
+      const compactTerm = {
         id: person.id.bioguide,
         n: fullName(person),
         t: term.type,
@@ -247,6 +229,23 @@ async function buildMembers() {
         senateClass: term.class ?? null,
         overridden: Boolean(override),
       };
+      if (term.type !== "rep") return [compactTerm];
+      const applicableCorrections = [];
+      let hasAuthoritativeCorrection = false;
+      for (let congress = firstCongress; congress <= lastCongress; congress += 1) {
+        const corrections = houseCorrectionsByTerm.get(`${person.id.bioguide}:${congress}`) ?? [];
+        if (corrections.length) hasAuthoritativeCorrection = true;
+        applicableCorrections.push(...corrections);
+      }
+      if (!hasAuthoritativeCorrection) return [compactTerm];
+      return applicableCorrections.flatMap((correction) => (correction.intervals ?? []).map((interval) => ({
+        ...compactTerm,
+        s: correction.state,
+        d: correction.district,
+        a: interval.start,
+        z: interval.end,
+        overridden: true,
+      })));
     }),
   );
   terms.push(...MANUAL_TERMS);
