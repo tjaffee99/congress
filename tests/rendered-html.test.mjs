@@ -39,7 +39,7 @@ test("the product source contains the historical map and no starter preview", as
 
   assert.match(page, /historical-polities\.json/);
   assert.doesNotMatch(page, /scroll to zoom/);
-  assert.match(page, /click to pin · ←\/→ scrub dates/);
+  assert.match(page, /click to pin · double-click for state delegation · ←\/→ scrub dates/);
   assert.match(page, /\[chamber\]\);/);
   assert.match(page, /\["1800-01-01", "1800"\]/);
   assert.match(page, /\["2000-01-01", "2000"\]/);
@@ -80,6 +80,9 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /current\?\.feature === mapFeature/);
   assert.doesNotMatch(page, /const y = pinned\s*\?\s*8/);
   assert.match(page, /tooltip-close/);
+  assert.match(page, /onDoubleClick=\{chamber === "rep"/);
+  assert.match(page, /scope === "delegation"/);
+  assert.match(page, /U\.S\. House delegation/);
   assert.match(page, /historicalStateOverlayPathElements/);
   assert.match(page, /mixedDistrictPatternId/);
   assert.match(page, /Statewide at large/);

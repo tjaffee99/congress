@@ -27,7 +27,7 @@ type MapProperties = {
 };
 type MapFeature = Feature<Geometry, MapProperties>;
 type ZoomState = { x: number; y: number; k: number };
-type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; labelOnly: string | null; feature: MapFeature };
+type TooltipState = { x: number; y: number; maxHeight: number; pinned: boolean; labelOnly: string | null; scope: "feature" | "delegation"; feature: MapFeature };
 type PointerPosition = { clientX: number; clientY: number };
 type PinchState = { distance: number; worldX: number; worldY: number; k: number };
 type OfficialGroup = "Executive" | "Cabinet" | "Supreme Court";
@@ -627,13 +627,13 @@ export default function Home() {
     setTooltip(null);
   }, []);
 
-  const placeTooltip = useCallback((clientX: number, clientY: number, mapFeature: MapFeature, pinned: boolean, labelOnly: string | null = null) => {
+  const placeTooltip = useCallback((clientX: number, clientY: number, mapFeature: MapFeature, pinned: boolean, labelOnly: string | null = null, scope: "feature" | "delegation" = "feature") => {
     const rect = mapRef.current?.getBoundingClientRect();
     if (!rect) return;
     const pointerX = clientX - rect.left;
     const pointerY = clientY - rect.top;
-    const cardWidth = Math.min(220, rect.width - 16);
-    const preferredHeight = Math.min(190, rect.height - 16);
+    const cardWidth = Math.min(scope === "delegation" ? 290 : 220, rect.width - 16);
+    const preferredHeight = Math.min(scope === "delegation" ? 360 : 190, rect.height - 16);
     const x = pointerX + 12 + cardWidth <= rect.width - 8
       ? pointerX + 12
       : Math.max(8, pointerX - cardWidth - 12);
@@ -642,7 +642,7 @@ export default function Home() {
       : Math.max(8, pointerY - preferredHeight - 12);
     pinnedTooltipRef.current = pinned;
     setTooltip((current) => {
-      const keepCurrentPosition = pinned && current?.feature === mapFeature && !current.labelOnly;
+      const keepCurrentPosition = pinned && current?.feature === mapFeature && current.scope === scope && !current.labelOnly;
       const nextX = keepCurrentPosition ? current.x : x;
       const nextY = keepCurrentPosition ? current.y : y;
       return {
@@ -651,6 +651,7 @@ export default function Home() {
         maxHeight: Math.max(60, rect.height - nextY - 8),
         pinned,
         labelOnly,
+        scope,
         feature: mapFeature,
       };
     });
@@ -697,6 +698,11 @@ export default function Home() {
             event.stopPropagation();
             placeTooltip(event.clientX, event.clientY, mapFeature, true);
           }}
+          onDoubleClick={chamber === "rep" ? (event) => {
+            if (didPanRef.current) return;
+            event.stopPropagation();
+            placeTooltip(event.clientX, event.clientY, mapFeature, true, null, "delegation");
+          } : undefined}
         />
       );
     }) : [],
@@ -959,6 +965,11 @@ export default function Home() {
   const tooltipStatewideAtLargeMembers = tooltip && chamber === "rep" && !tooltip.labelOnly
     ? statewideAtLargeMembersForDistrict(tooltip.feature)
     : [];
+  const tooltipHouseDelegation = tooltip && chamber === "rep" && tooltip.scope === "delegation" && !tooltip.labelOnly
+    ? activeHouseMembers
+      .filter((member) => member.s === STATE_ABBR[tooltip.feature.properties.statename ?? ""])
+      .sort((a, b) => (a.d ?? -1) - (b.d ?? -1) || a.n.localeCompare(b.n))
+    : [];
   const hasMixedDelegation = chamber === "rep" && visibleDistricts.some(
     (mapFeature) => statewideAtLargeMembersForDistrict(mapFeature).length > 0,
   );
@@ -1042,7 +1053,7 @@ export default function Home() {
                 onClick={() => setHighDetail((enabled) => !enabled)}
               >{highDetail ? "High detail on" : "High detail"}</button>
             )}
-            <p>{isPreconstitutional ? "Hover for delegates · click to pin · ←/→ scrub dates" : chamber === "rep" ? "Hover for members · click to pin · ←/→ scrub dates" : "Hover for senators · click to pin · ←/→ scrub dates"}</p>
+            <p>{isPreconstitutional ? "Hover for delegates · click to pin · ←/→ scrub dates" : chamber === "rep" ? "Hover for members · click to pin · double-click for state delegation · ←/→ scrub dates" : "Hover for senators · click to pin · ←/→ scrub dates"}</p>
           </div>
 
           <section className="control-board" aria-label={isPreconstitutional ? `${governmentLabel} state delegations` : `${chamber === "rep" ? "House" : "Senate"} party control`}>
@@ -1092,7 +1103,7 @@ export default function Home() {
             ref={mapRef}
             role="region"
             tabIndex={0}
-            aria-label="Interactive map. Click a state or district to pin its details. Drag to pan; use plus and minus to zoom; use left and right arrows to scrub dates; use shift plus left or right and the up or down arrows to pan; press zero to reset."
+            aria-label="Interactive map. Click a state or district to pin its details. In the House view, double-click a district to open its entire state delegation. Drag to pan; use plus and minus to zoom; use left and right arrows to scrub dates; use shift plus left or right and the up or down arrows to pan; press zero to reset."
             onKeyDown={handleMapKeyDown}
             onMouseLeave={() => { if (!pinnedTooltipRef.current) setTooltip(null); }}
             onPointerDown={handleMapPointerDown}
@@ -1152,7 +1163,7 @@ export default function Home() {
             </svg>
             {tooltip && (
               <div
-                className={`tooltip ${tooltip.pinned ? "is-pinned" : ""}${tooltip.labelOnly ? " is-geography" : ""}`}
+                className={`tooltip ${tooltip.pinned ? "is-pinned" : ""}${tooltip.labelOnly ? " is-geography" : ""}${tooltip.scope === "delegation" ? " is-delegation" : ""}`}
                 style={{ left: tooltip.x, top: tooltip.y, maxHeight: tooltip.maxHeight }}
                 role={tooltip.pinned ? "dialog" : undefined}
                 tabIndex={tooltip.pinned ? 0 : undefined}
@@ -1182,14 +1193,23 @@ export default function Home() {
                     })}</ul>
                   </>
                 ) : (
-                  <>
-                    <strong>{tooltip.feature.properties.statename}{(tooltip.feature.properties.district ?? 0) > 0 ? ` · District ${tooltip.feature.properties.district}` : " · At large"}</strong>
-                    <span>U.S. House</span>
-                    {tooltipHouseMembers.map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)}</small></div>)}
-                    {!tooltipHouseMembers.length && <p>Seat vacant or no member record on this date.</p>}
-                    {tooltipStatewideAtLargeMembers.length > 0 && <span className="tooltip-subhead">Statewide at large</span>}
-                    {tooltipStatewideAtLargeMembers.map((member) => <div className="house-member statewide-member" key={`statewide-${member.id}`}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)} · statewide seat</small></div>)}
-                  </>
+                  tooltip.scope === "delegation" ? (
+                    <>
+                      <strong>{tooltip.feature.properties.statename}</strong>
+                      <span>U.S. House delegation · {tooltipHouseDelegation.length} members</span>
+                      {tooltipHouseDelegation.map((member) => <div className="house-member delegation-member" key={`${member.id}-${member.d}`}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{(member.d ?? 0) > 0 ? `District ${member.d}` : "At large"} · {partyLabel(member)}</small></div>)}
+                      {!tooltipHouseDelegation.length && <p>No seated representatives are listed for this state on this date.</p>}
+                    </>
+                  ) : (
+                    <>
+                      <strong>{tooltip.feature.properties.statename}{(tooltip.feature.properties.district ?? 0) > 0 ? ` · District ${tooltip.feature.properties.district}` : " · At large"}</strong>
+                      <span>U.S. House</span>
+                      {tooltipHouseMembers.map((member) => <div className="house-member" key={member.id}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)}</small></div>)}
+                      {!tooltipHouseMembers.length && <p>Seat vacant or no member record on this date.</p>}
+                      {tooltipStatewideAtLargeMembers.length > 0 && <span className="tooltip-subhead">Statewide at large</span>}
+                      {tooltipStatewideAtLargeMembers.map((member) => <div className="house-member statewide-member" key={`statewide-${member.id}`}><i style={{ background: colorForMember(member) }} /><b><a href={wikipediaHref(member)} target="_blank" rel="noreferrer">{member.n}</a></b><small>{partyLabel(member)} · statewide seat</small></div>)}
+                    </>
+                  )
                 ))}
               </div>
             )}
