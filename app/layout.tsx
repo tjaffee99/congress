@@ -10,7 +10,7 @@ const description = "Explore the U.S. House, Senate, executive branch, Supreme C
 const socialImage = "/american-atlas-social-2026.png";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://americanatlas.us"),
+  metadataBase: new URL("https://congress.theojaffee.net"),
   title,
   description,
   alternates: { canonical: "/" },

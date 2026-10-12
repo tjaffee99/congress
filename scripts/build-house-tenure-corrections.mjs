@@ -5,7 +5,7 @@ import * as yaml from "js-yaml";
 const root = process.cwd();
 const output = path.join(root, "scripts/data/house-tenure-corrections.json");
 const WIKIPEDIA_API = "https://en.wikipedia.org/w/api.php";
-const USER_AGENT = "AmericanAtlasDataAudit/1.0 (https://americanatlas.us)";
+const USER_AGENT = "AmericanAtlasDataAudit/1.0 (https://congress.theojaffee.net)";
 const MONTHS = "January|February|March|April|May|June|July|August|September|October|November|December";
 
 const STATE_CODES = {

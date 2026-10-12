@@ -122,7 +122,7 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Unfilled Senate seat/);
   assert.doesNotMatch(page, /className="portrait"|initials\(/);
   assert.match(layout, /American Atlas/);
-  assert.match(layout, /metadataBase: new URL\("https:\/\/americanatlas\.us"\)/);
+  assert.match(layout, /metadataBase: new URL\("https:\/\/congress\.theojaffee\.net"\)/);
   assert.match(layout, /american-atlas-social-2026\.png/);
   assert.match(layout, /card: "summary_large_image"/);
   assert.equal(socialPreview.readUInt32BE(16), 1200);

@@ -66,7 +66,7 @@ function isoDate(value) {
 async function scrapeOffice([title, page, order, created, discontinued]) {
   const url = `https://en.wikipedia.org/wiki/${page.replaceAll(" ", "_")}`;
   const response = await fetch(url, {
-    headers: { "user-agent": "AmericanAtlas/1.0 (historical civic atlas; https://americanatlas.us)" },
+    headers: { "user-agent": "AmericanAtlas/1.0 (historical civic atlas; https://congress.theojaffee.net)" },
   });
   if (!response.ok) throw new Error(`${title}: Wikipedia returned ${response.status}`);
   const html = await response.text();

@@ -1,3 +1,20 @@
+# American Atlas
+
+The U.S. House, Senate, executive branch, Supreme Court and congressional
+leadership on any date since July 4, 1776. Live at
+[congress.theojaffee.net](https://congress.theojaffee.net).
+
+## Deploying
+
+Every push to `main` runs the tests, builds the site as static files
+(`npm run build:static`, which writes `dist/client`), and publishes it with
+GitHub Pages via `.github/workflows/deploy-pages.yml`. The page loads all of its
+data from `public/data/` in the browser, so it needs no server.
+
+`npm run build` still produces the Cloudflare Worker build the site was created with.
+
+---
+
 # vinext-starter
 
 A clean full-stack starter running on
