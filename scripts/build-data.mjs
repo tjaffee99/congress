@@ -81,7 +81,7 @@ function congressForDate(date) {
   const [year, month, day] = date.split("-").map(Number);
   if (date >= "1935-01-03") {
     const start = year % 2 === 1 && (month > 1 || (month === 1 && day >= 3)) ? year : year - (year % 2 === 0 ? 1 : 2);
-    return Math.max(1, Math.min(119, (start - 1787) / 2));
+    return Math.max(1, (start - 1787) / 2);
   }
   const start = year % 2 === 1 && (month > 3 || (month === 3 && day >= 4)) ? year : year - (year % 2 === 0 ? 1 : 2);
   return Math.max(1, Math.min(73, (start - 1787) / 2));
@@ -143,6 +143,12 @@ const TERM_OVERRIDES = new Map([
   ["C000482:1825-12-05:1827-03-03", { party: "Anti-Jacksonian" }],
   ["F000374:1850-01-01:1851-03-03", { start: "1850-09-09" }],
   ["G000540:1850-09-10:1855-03-03", { start: "1850-09-09" }],
+  // The House Clerk's vacancy list dates these 119th Congress departures one
+  // day differently from the upstream roster.
+  ["T000489:2025-01-03:2025-03-04", { end: "2025-03-05" }],
+  ["G000590:2025-01-03:2025-07-21", { end: "2025-07-20" }],
+  ["L000578:2025-01-03:2026-01-05", { end: "2026-01-06" }],
+  ["S001157:2025-01-03:2026-04-21", { end: "2026-04-22" }],
 ]);
 
 // The upstream unitedstates/congress-legislators roster incorrectly gives
@@ -153,23 +159,38 @@ const INVALID_TERMS = new Set([
   "G000171:rep:CA:1849-12-03:1851-03-03",
 ]);
 
-const MANUAL_TERMS = [
-  {
-    id: "SC-SEN-2026-DG",
-    n: "Darline Graham",
-    t: "sen",
-    s: "SC",
-    d: null,
-    p: "Republican",
-    c: null,
-    w: null,
-    a: "2026-07-13",
-    z: "2027-01-03",
-    sourceStart: "2026-07-13",
-    sourceEnd: "2027-01-02",
-    overridden: true,
-  },
-];
+// Appointed senators are recorded upstream as leaving on the date of the
+// special election for their seat, but they keep serving until a successor
+// is sworn in. Until the roster records that successor, keep the appointee
+// seated through the end of the Congress rather than showing a vacancy.
+function provisionalAppointmentEnd(term, isCurrent) {
+  if (!isCurrent || term.type !== "sen" || term.how !== "appointment" || /-01-0[345]$/.test(term.end)) return null;
+  const year = Number(term.end.slice(0, 4));
+  return `${year % 2 === 1 ? year + 2 : year + 1}-01-03`;
+}
+
+// A term's party_affiliations record mid-term party switches (Jeffords in
+// 2001, Specter in 2009, Kiley in 2026, and so on). Each affiliation runs
+// until the next one begins; the first and last extend to the term's edges.
+function affiliationSpans(term, firstCongress) {
+  if (!term.party_affiliations?.length) return null;
+  return term.party_affiliations.map((affiliation, index, all) => ({
+    a: index === 0 ? "0000-01-01" : affiliation.start,
+    z: all[index + 1]?.start ?? "9999-12-31",
+    p: normalizedPartyName(affiliation.party, affiliation.start, index === 0 ? firstCongress : congressForDate(affiliation.start)),
+    c: affiliation.caucus ?? null,
+  }));
+}
+
+function splitByAffiliation(compactTerm, spans) {
+  if (!spans) return [compactTerm];
+  return spans.flatMap((span) => {
+    const a = span.a > compactTerm.a ? span.a : compactTerm.a;
+    const z = span.z < compactTerm.z ? span.z : compactTerm.z;
+    if (a >= z) return [];
+    return [{ ...compactTerm, a, z, p: span.p, c: span.c, q: null }];
+  });
+}
 
 function historicalCongressStart(end) {
   const match = end.match(/^(\d{4})-03-03$/);
@@ -187,8 +208,10 @@ function nextDay(date) {
 async function buildMembers() {
   const files = ["work/legislators-historical.yaml", "work/legislators-current.yaml"];
   const people = [];
+  const currentIds = new Set();
   for (const file of files) {
     const source = yaml.load(await readFile(path.join(root, file), "utf8"));
+    if (file.endsWith("current.yaml")) source.forEach((person) => currentIds.add(person.id.bioguide));
     people.push(...source);
   }
 
@@ -234,10 +257,13 @@ async function buildMembers() {
         c: term.caucus ?? null,
         w: wikipediaUrl(person),
         a: override?.start ?? term.start,
-        z: override?.end ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end),
+        z: override?.end
+          ?? provisionalAppointmentEnd(term, currentIds.has(person.id.bioguide))
+          ?? (term.end.endsWith("-03-03") ? nextDay(term.end) : term.end),
         sourceStart: term.start,
         sourceEnd: term.end,
         senateClass: term.class ?? null,
+        affiliations: affiliationSpans(term, firstCongress),
         overridden: Boolean(override),
       };
       if (term.type !== "rep") return [compactTerm];
@@ -259,7 +285,6 @@ async function buildMembers() {
       })));
     }),
   );
-  terms.push(...MANUAL_TERMS);
 
   const houseTermsByCongressEnd = Map.groupBy(
     terms.filter((term) => term.t === "rep" && historicalCongressStart(term.sourceEnd)),
@@ -300,13 +325,14 @@ async function buildMembers() {
     });
   }
 
-  const compactTerms = terms.map((term) => {
+  const compactTerms = terms.flatMap((term) => splitByAffiliation(term, term.affiliations)).map((term) => {
     const compact = { ...term };
     if (compact.t === "sen") compact.k = compact.senateClass;
     if (!compact.q) delete compact.q;
     delete compact.sourceStart;
     delete compact.sourceEnd;
     delete compact.senateClass;
+    delete compact.affiliations;
     delete compact.overridden;
     return compact;
   });

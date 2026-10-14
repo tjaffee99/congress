@@ -255,10 +255,11 @@ test("current House totals exclude six non-voting territorial delegates", () => 
 });
 
 test("a Senate vacancy remains visible until an appointed successor takes office", () => {
-  const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-12" && member.z > "2026-07-12");
-  const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
+  // Appointed July 13, 2026; sworn in July 14.
+  const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
+  const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-14" && member.z > "2026-07-14");
   assert.equal(beforeAppointment.length, 1);
-  assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham", "Tim Scott"]);
+  assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham Nordone", "Tim Scott"]);
 });
 
 test("regular Senate terms begin on March 4 rather than the delayed session opening", () => {

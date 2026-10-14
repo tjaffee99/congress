@@ -88,6 +88,7 @@ async function sourceMembers() {
       district: term.district,
       start: term.start,
       end: sourceTermEnd(term.end),
+      partySwitches: new Set((term.party_affiliations ?? []).slice(1).map((affiliation) => affiliation.start)),
     })));
 }
 
@@ -245,6 +246,9 @@ function ensureCorrection(member, congress, seat) {
 }
 
 function addBoundary(member, congress, type, date, seat) {
+  // A date outside the Congress (usually a typo in the source table) cannot
+  // bound a seat in it.
+  if ((type === "start" && date >= congressEnd(congress)) || (type === "end" && date <= congressStart(congress))) return;
   if (type === "start" && date < congressStart(congress)) date = congressStart(congress);
   if (type === "end" && date > congressEnd(congress)) date = congressEnd(congress);
   const candidates = correctionsByMemberCongress.get(`${member.id}:${congress}`) ?? [];
@@ -271,8 +275,13 @@ for (const { congress, text } of pages) {
     if (!member) continue;
     ensureCorrection(member, congress, rosterSeat);
 
-    const start = exactDateAfter(line, /\bfrom\b/i);
-    const endDate = exactDateAfter(line, /\buntil\b/i);
+    // Roster lines also annotate party switches ("(I) from July 4, 2019");
+    // those dates are not changes in who holds the seat.
+    const switchedParty = (date) => member.partySwitches.has(date);
+    const listedStart = exactDateAfter(line, /\bfrom\b/i);
+    const listedEnd = exactDateAfter(line, /\buntil\b/i);
+    const start = listedStart && !switchedParty(listedStart) ? listedStart : null;
+    const endDate = listedEnd && !switchedParty(listedEnd) && !switchedParty(nextDay(listedEnd)) ? listedEnd : null;
     const seatKey = `${rosterSeat.state}:${rosterSeat.district}`;
     if (start) {
       addBoundary(member, congress, "start", start, rosterSeat);
