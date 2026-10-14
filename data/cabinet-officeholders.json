@@ -1527,6 +1527,20 @@
   },
   {
     "id": "WIKIPEDIA-SECRETARY-OF-STATE-110",
+    "n": "John Negroponte",
+    "t": "Secretary of State",
+    "g": "Cabinet",
+    "o": 10,
+    "h": null,
+    "p": null,
+    "s": null,
+    "x": true,
+    "w": "https://en.wikipedia.org/wiki/John_Negroponte",
+    "a": "2009-01-20",
+    "z": "2009-01-20"
+  },
+  {
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-111",
     "n": "Bill Burns",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1540,7 +1554,7 @@
     "z": "2009-01-21"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-111",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-112",
     "n": "Hillary Clinton",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1554,7 +1568,7 @@
     "z": "2013-02-01"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-112",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-113",
     "n": "John Kerry",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1568,7 +1582,7 @@
     "z": "2017-01-20"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-113",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-114",
     "n": "Tom Shannon",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1582,7 +1596,7 @@
     "z": "2017-02-01"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-114",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-115",
     "n": "Rex Tillerson",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1596,7 +1610,7 @@
     "z": "2018-03-31"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-115",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-116",
     "n": "John Sullivan",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1610,7 +1624,7 @@
     "z": "2018-04-26"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-116",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-117",
     "n": "Mike Pompeo",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1624,7 +1638,7 @@
     "z": "2021-01-20"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-117",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-118",
     "n": "Daniel Bennett Smith",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1638,7 +1652,7 @@
     "z": "2021-01-26"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-118",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-119",
     "n": "Antony Blinken",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1652,7 +1666,7 @@
     "z": "2025-01-20"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-119",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-120",
     "n": "John R. Bass",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1666,7 +1680,7 @@
     "z": "2025-01-20"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-120",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-121",
     "n": "Lisa D. Kenna",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -1680,7 +1694,7 @@
     "z": "2025-01-21"
   },
   {
-    "id": "WIKIPEDIA-SECRETARY-OF-STATE-121",
+    "id": "WIKIPEDIA-SECRETARY-OF-STATE-122",
     "n": "Marco Rubio",
     "t": "Secretary of State",
     "g": "Cabinet",
@@ -6560,9 +6574,23 @@
     "h": null,
     "p": null,
     "s": null,
-    "x": true,
+    "x": false,
     "w": "https://en.wikipedia.org/wiki/Todd_Blanche",
     "a": "2026-04-02",
+    "z": "2026-08-10"
+  },
+  {
+    "id": "WIKIPEDIA-ATTORNEY-GENERAL-114",
+    "n": "Todd Blanche",
+    "t": "Attorney General",
+    "g": "Cabinet",
+    "o": 13,
+    "h": null,
+    "p": null,
+    "s": null,
+    "x": false,
+    "w": "https://en.wikipedia.org/wiki/Todd_Blanche",
+    "a": "2026-08-10",
     "z": null
   },
   {
@@ -8310,7 +8338,7 @@
     "h": null,
     "p": null,
     "s": null,
-    "x": false,
+    "x": true,
     "w": "https://en.wikipedia.org/wiki/Lewis_Strauss",
     "a": "1958-11-13",
     "z": "1959-06-30"
@@ -9431,7 +9459,7 @@
     "p": null,
     "s": null,
     "x": false,
-    "w": "https://en.wikipedia.org/wiki/Al_Stewart_(U.S._government_official)",
+    "w": "https://en.wikipedia.org/wiki/Al_Stewart_(government_official)",
     "a": "2021-01-20",
     "z": "2021-03-23"
   },
@@ -9503,6 +9531,20 @@
     "x": true,
     "w": "https://en.wikipedia.org/wiki/Keith_Sonderling",
     "a": "2026-04-20",
+    "z": "2026-10-02"
+  },
+  {
+    "id": "WIKIPEDIA-SECRETARY-OF-LABOR-40",
+    "n": "Keith Sonderling",
+    "t": "Secretary of Labor",
+    "g": "Cabinet",
+    "o": 17,
+    "h": null,
+    "p": null,
+    "s": null,
+    "x": false,
+    "w": "https://en.wikipedia.org/wiki/Keith_Sonderling",
+    "a": "2026-10-02",
     "z": null
   },
   {

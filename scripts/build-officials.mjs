@@ -408,7 +408,7 @@ async function senateFloorLeaders() {
     const [congressStart, congressEnd] = congressDateRange(congress);
     for (const [cellIndex, title, order] of [[1, "Senate majority leader", 42], [2, "Senate minority leader", 44]]) {
       const people = [...cells[cellIndex].matchAll(/<a[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>\s*\(([DRI])-([A-Z]{2})\)<\/a>/g)]
-        .map((match) => ({ name: textFromHtml(match[1]), party: match[2] === "D" ? "Democrat" : match[2] === "R" ? "Republican" : "Independent", state: match[3] }));
+        .map((match) => ({ name: textFromHtml(match[1]).replace(/\s*\([^)]*\)$/, ""), party: match[2] === "D" ? "Democrat" : match[2] === "R" ? "Republican" : "Independent", state: match[3] }));
       const dates = transitions.get(`${congress}|${title}`) ?? [];
       people.forEach((person, index) => leaders.push({
         id: `SENATE-${congress}-${title}-${index}`,
@@ -752,10 +752,19 @@ function mergeSameOfficeholder(rows) {
 
 const currentOfficeholderCorrections = [
   {
+    title: "Attorney General",
+    cutoff: "2026-04-02",
+    replacements: [
+      { id: "CURRENT-AG-BLANCHE-ACTING", n: "Todd Blanche", t: "Attorney General", g: "Cabinet", o: 13, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Todd_Blanche", a: "2026-04-02", z: "2026-08-10" },
+      { id: "CURRENT-AG-BLANCHE", n: "Todd Blanche", t: "Attorney General", g: "Cabinet", o: 13, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Todd_Blanche", a: "2026-08-10", z: null },
+    ],
+  },
+  {
     title: "Secretary of Labor",
     cutoff: "2026-04-20",
     replacements: [
-      { id: "CURRENT-LABOR-SONDERLING", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-04-20", z: null },
+      { id: "CURRENT-LABOR-SONDERLING-ACTING", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-04-20", z: "2026-10-02" },
+      { id: "CURRENT-LABOR-SONDERLING", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-10-02", z: null },
     ],
   },
   {
@@ -767,10 +776,28 @@ const currentOfficeholderCorrections = [
     ],
   },
   {
+    title: "White House Counsel",
+    cutoff: "2026-09-01",
+    replacements: [
+      { id: "CURRENT-WHC-SCHARF", n: "Will Scharf", t: "White House Counsel", g: "Cabinet-level", o: 25.2, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Will_Scharf", a: "2026-09-01", z: null },
+    ],
+  },
+  {
+    // Rubio ran the NSC on an acting basis from Waltz's exit until Trump
+    // signed his commission, reported September 22, 2026.
+    title: "National Security Advisor",
+    cutoff: "2025-05-01",
+    replacements: [
+      { id: "CURRENT-NSA-RUBIO-ACTING", n: "Marco Rubio", t: "National Security Advisor", g: "Cabinet-level", o: 25.3, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Marco_Rubio", a: "2025-05-01", z: "2026-09-22" },
+      { id: "CURRENT-NSA-RUBIO", n: "Marco Rubio", t: "National Security Advisor", g: "Cabinet-level", o: 25.3, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Marco_Rubio", a: "2026-09-22", z: null },
+    ],
+  },
+  {
     title: "Director of National Intelligence",
     cutoff: "2026-06-19",
     replacements: [
-      { id: "CURRENT-DNI-PULTE", n: "William J. Pulte", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Bill_Pulte", a: "2026-06-19", z: null },
+      { id: "CURRENT-DNI-PULTE", n: "William J. Pulte", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Bill_Pulte", a: "2026-06-19", z: "2026-08-03" },
+      { id: "CURRENT-DNI-CLAYTON", n: "Jay Clayton", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Jay_Clayton_(attorney)", a: "2026-08-03", z: null },
     ],
   },
 ];
@@ -812,8 +839,12 @@ SELECT ?person ?personLabel ?position ?start ?end ?article WHERE {
     ?article schema:about ?person;
       schema:isPartOf <https://en.wikipedia.org/>.
   }
-  ?person rdfs:label ?personLabel .
-  FILTER(LANG(?personLabel) = "en")
+  # Wikidata has moved many people's names from "en" to the language-neutral
+  # "mul" label, so fall back to it rather than dropping the person.
+  OPTIONAL { ?person rdfs:label ?enLabel . FILTER(LANG(?enLabel) = "en") }
+  OPTIONAL { ?person rdfs:label ?mulLabel . FILTER(LANG(?mulLabel) = "mul") }
+  BIND(COALESCE(?enLabel, ?mulLabel) AS ?personLabel)
+  FILTER(BOUND(?personLabel))
 }`;
 
 const sparql = new URL("https://query.wikidata.org/sparql");
@@ -822,6 +853,9 @@ sparql.searchParams.set("format", "json");
 const response = await fetch(sparql, { headers: { "User-Agent": "AmericanStateAtlas/1.0" } });
 if (!response.ok) throw new Error(`Wikidata query failed: ${response.status}`);
 const bindings = (await response.json()).results.bindings;
+// An end date after the build is an announcement or a guess (Wikidata briefly
+// gave Justice Alito a 2027 retirement), not a fact the atlas can show yet.
+const buildDate = new Date().toISOString().slice(0, 10);
 
 let officials = bindings.map((row) => {
   const person = row.person.value.split("/").pop();
@@ -839,7 +873,7 @@ let officials = bindings.map((row) => {
     x: false,
     w: row.article?.value ?? null,
     a: row.start?.value?.slice(0, 10) ?? null,
-    z: row.end?.value?.slice(0, 10) ?? null,
+    z: row.end && row.end.value.slice(0, 10) <= buildDate ? row.end.value.slice(0, 10) : null,
   };
 }).filter((official) =>
   official.a
