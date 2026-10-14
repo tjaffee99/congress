@@ -12,6 +12,7 @@ import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs
 import { clampZoom, isLikelyMouseWheel } from "./map-input.mjs";
 import { CONFEDERATION_CONGRESS_START, FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 import { officialOfficesForDate } from "./cabinet-offices.mjs";
+import { chamberControl, congressDates, congressFor, LATEST_DISTRICT_CONGRESS } from "./congress-terms.mjs";
 
 type Chamber = "sen" | "rep" | "congress";
 type Member = { id: string; n: string; t: Chamber; s: string; d: number | null; k?: number | null; p: string; q?: Record<string, string>; c: string | null; w: string | null; a: string; z: string; body?: string; year?: number };
@@ -177,24 +178,6 @@ function fromDay(day: number) {
   return new Date(Date.parse(`${MIN_DATE}T00:00:00Z`) + safeDay * DAY).toISOString().slice(0, 10);
 }
 
-function congressFor(date: string) {
-  if (date < FEDERAL_CONGRESS_START) return 0;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return 1;
-  const [year, month, day] = date.split("-").map(Number);
-  if (date >= "1935-01-03") {
-    const start = year % 2 === 1 && (month > 1 || (month === 1 && day >= 3)) ? year : year - (year % 2 === 0 ? 1 : 2);
-    return Math.max(1, Math.min(119, (start - 1787) / 2));
-  }
-  const start = year % 2 === 1 && (month > 3 || (month === 3 && day >= 4)) ? year : year - (year % 2 === 0 ? 1 : 2);
-  return Math.max(1, Math.min(73, (start - 1787) / 2));
-}
-
-function congressDates(congress: number) {
-  const startYear = congress <= 73 ? 1787 + congress * 2 : 1935 + (congress - 74) * 2;
-  const monthDay = congress <= 73 ? "03-04" : "01-03";
-  return [`${startYear}-${monthDay}`, `${startYear + 2}-${monthDay}`] as const;
-}
-
 function longDate(date: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "Date unavailable";
   return new Intl.DateTimeFormat("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "UTC" })
@@ -320,8 +303,12 @@ export default function Home() {
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) setMapLoading(true); });
     const detailDirectory = highDetail ? "districts-high" : "districts";
-    fetch(`/data/${detailDirectory}/${String(congress).padStart(3, "0")}.json`)
-      .then((response) => response.json())
+    const planCongress = Math.min(congress, LATEST_DISTRICT_CONGRESS);
+    fetch(`/data/${detailDirectory}/${String(planCongress).padStart(3, "0")}.json`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`District boundaries returned ${response.status}`);
+        return response.json();
+      })
       .then((topology: Topology) => {
         if (cancelled) return;
         const features = Object.values(topology.objects).flatMap((object) => {
@@ -334,6 +321,11 @@ export default function Home() {
           latestPlanByDistrict.set(key, mapFeature);
         });
         setDistricts([...latestPlanByDistrict.values()]);
+        setMapLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setDistricts([]);
         setMapLoading(false);
       });
     return () => { cancelled = true; };
@@ -486,11 +478,8 @@ export default function Home() {
       group.count += 1;
       visualGroups.set(key, group);
     }
-    const majority = Math.floor(seatTotal / 2) + 1;
-    const [leadingParty, leadingSeats = 0] = [...controlCounts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
     const vicePresident = resolvedActiveOfficials.find((official) => official.t === "Vice President");
-    const tieBreak = chamber === "sen" && leadingSeats === seatTotal / 2 && vicePresident?.p === leadingParty;
-    const hasControl = leadingSeats >= majority || tieBreak;
+    const { majority, leadingParty, leadingSeats, tieBreak, hasControl } = chamberControl(controlCounts, seatTotal, vicePresident?.p, chamber === "sen");
     const partyName = leadingParty === "Democrat" ? "Democratic" : leadingParty;
     const controlLabel = hasControl
       ? `${partyName} control${tieBreak && leadingSeats < majority ? " · VP tie-break" : ""}`
@@ -951,7 +940,7 @@ export default function Home() {
       window.removeEventListener("blur", stopScrubbing);
     };
   }, [changeDate, maxDay]);
-  const timelineMarks = [...TIMELINE_MARKS, [today, "2026"]] as const;
+  const timelineMarks = [...TIMELINE_MARKS, [today, today.slice(0, 4)]] as const;
   const isPreconstitutional = chamber === "congress";
   const governmentLabel = governmentTermLabel(date, congress);
   const hasFederalSeatData = federalMembers.length > 0
@@ -1308,7 +1297,7 @@ export default function Home() {
       </section>
 
       <footer id="sources">
-        <p><strong>Sources:</strong> U.S. House History · UCLA Congressional District Boundaries · U.S. Census Bureau · Newberry Library · Congress Legislators · Voteview · Wikidata</p>
+        <p><strong>Sources:</strong> U.S. House History · U.S. Senate · UCLA Congressional District Boundaries · U.S. Census Bureau · Newberry Library · Congress Legislators · Voteview · Wikidata · Wikipedia</p>
         <small>Research interface · vacancies, acting service, caucus affiliation, and dated corrections are modeled explicitly. · <a href="https://x.com/theojaffee" target="_blank" rel="noreferrer">Made by Theo Jaffee</a></small>
       </footer>
     </main>
