@@ -11,105 +11,60 @@ Every push to `main` runs the tests, builds the site as static files
 GitHub Pages via `.github/workflows/deploy-pages.yml`. The page loads all of its
 data from `public/data/` in the browser, so it needs no server.
 
-`npm run build` still produces the Cloudflare Worker build the site was created with.
+`npm run build` still produces the Cloudflare Worker build the site was created
+with; `npm test` builds it and checks the rendered page.
 
----
+## Commands
 
-# vinext-starter
+- `npm run dev`: local development server
+- `npm test`: build, then run the data and rendering tests in `tests/`
+- `npm run build:static`: static site in `dist/client`
+- `npm run lint`: ESLint
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+## Updating the data
 
-## Prerequisites
+The JSON in `public/data/` is generated and committed; nothing is fetched from
+third parties at runtime. Rebuild it whenever officeholders change (special
+elections, appointments, resignations, Cabinet turnover) and at the start of
+each Congress.
 
-- Node.js `>=22.13.0`
-
-## Quick Start
+Members of Congress come from
+[unitedstates/congress-legislators](https://github.com/unitedstates/congress-legislators),
+with party labels from Voteview and dated House seat corrections from
+Wikipedia's per-Congress "Changes in membership" tables:
 
 ```bash
-npm install
-npm run dev
-npm run build
+mkdir -p work
+for file in legislators-current.yaml legislators-historical.yaml; do
+  curl -fsSL -o "work/$file" \
+    "https://raw.githubusercontent.com/unitedstates/congress-legislators/main/$file"
+done
+npm run data:house-tenures   # scripts/data/house-tenure-corrections.json + public/data/members.json
 ```
 
-This starter does not use `wrangler.jsonc`.
+Executive, judicial and leadership offices come from Wikidata, Wikipedia's
+Cabinet tables, senate.gov and history.house.gov:
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-OpenAI workspace sites can read the current user's email from
-`oai-authenticated-user-email`.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+node scripts/scrape-cabinet-officeholders.mjs   # data/cabinet-officeholders.json
+node scripts/build-officials.mjs                # public/data/officials.json
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+Upstream sources lag real events by days or weeks. Hand corrections live next
+to the code that applies them: `TERM_OVERRIDES` in `scripts/build-data.mjs` for
+member dates, and `currentOfficeholderCorrections` in
+`scripts/build-officials.mjs` for recent executive changes. Review the diff of
+the generated JSON before committing; Wikidata and Wikipedia edits can
+introduce regressions, and `npm test` checks the known ones.
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+House district maps are TopoJSON per Congress in `public/data/districts/` and
+`public/data/districts-high/`, built with mapshaper from GeoJSON in
+`work/congressional-district-boundaries/GeoJson`:
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+```bash
+node scripts/build-data.mjs districts 120 --detail=both
+```
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+Until a Congress has its own boundaries, the map draws the newest plan listed
+as `LATEST_DISTRICT_CONGRESS` in `app/congress-terms.mjs`; raise it once the
+new files exist.
