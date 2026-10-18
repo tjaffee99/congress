@@ -175,6 +175,34 @@ function personTitle(cell = "") {
   return [...cell.matchAll(/\[\[([^\]|#]+)(?:\|[^\]]*)?\]\]/g)].map((match) => match[1])[0] ?? null;
 }
 
+// Citations and {{efn}} notes carry dates that are not tenure boundaries: a
+// source's publication date, or a party switch such as "changed from
+// Republican to Independent, July 4, 2019". Notes can nest other templates, so
+// each one is removed by matching its braces.
+function withoutFootnotes(text) {
+  let result = text
+    .replace(/<ref[^>]*\/>/gi, "")
+    .replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, "");
+  for (let start = result.search(/\{\{\s*efn\b/i); start >= 0; start = result.search(/\{\{\s*efn\b/i)) {
+    let depth = 0;
+    let end = start;
+    while (end < result.length) {
+      if (result.startsWith("{{", end)) {
+        depth += 1;
+        end += 2;
+      } else if (result.startsWith("}}", end)) {
+        depth -= 1;
+        end += 2;
+        if (!depth) break;
+      } else {
+        end += 1;
+      }
+    }
+    result = result.slice(0, start) + result.slice(end);
+  }
+  return result;
+}
+
 function exactDate(cell = "") {
   const match = cell.match(new RegExp(`\\b(${MONTHS})\\s+(\\d{1,2})(?:st|nd|rd|th)?,\\s+(\\d{4})\\b`));
   if (!match) return null;
@@ -260,9 +288,7 @@ for (const { congress, text } of pages) {
   let rosterSeat = null;
   const pendingRosterEnds = new Map();
   for (const originalLine of houseRoster(text).split("\n")) {
-    const line = originalLine
-      .replace(/<ref[^>]*>[\s\S]*?<\/ref>/gi, "")
-      .replace(/<ref[^>]*\/>/gi, "");
+    const line = withoutFootnotes(originalLine);
     const lineSeat = seatFromCell(line);
     if (lineSeat) rosterSeat = lineSeat;
     if (!rosterSeat || !/^:{1,4}\s*/.test(line)) continue;
@@ -297,7 +323,7 @@ for (const { congress, text } of pages) {
     }
   }
 
-  for (const row of changeRows(houseChanges(text))) {
+  for (const row of changeRows(houseChanges(text)).map(withoutFootnotes)) {
     if (/changed part(?:y|ies)|party switch/i.test(row)) continue;
     const cells = rowCells(row);
     const seat = seatFromCell(cells[0]);

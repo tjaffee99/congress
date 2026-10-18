@@ -143,6 +143,12 @@ const TERM_OVERRIDES = new Map([
   ["C000482:1825-12-05:1827-03-03", { party: "Anti-Jacksonian" }],
   ["F000374:1850-01-01:1851-03-03", { start: "1850-09-09" }],
   ["G000540:1850-09-10:1855-03-03", { start: "1850-09-09" }],
+  // The roster ends a member's term on the date of death (as for Grijalva and
+  // Connolly), but ends these three a day early. The House Clerk's 119th
+  // Congress vacancy list gives the dates of death used here.
+  ["T000489:2025-01-03:2025-03-04", { end: "2025-03-05" }],
+  ["L000578:2025-01-03:2026-01-05", { end: "2026-01-06" }],
+  ["S001157:2025-01-03:2026-04-21", { end: "2026-04-22" }],
 ]);
 
 // The upstream unitedstates/congress-legislators roster incorrectly gives
@@ -152,24 +158,6 @@ const TERM_OVERRIDES = new Map([
 const INVALID_TERMS = new Set([
   "G000171:rep:CA:1849-12-03:1851-03-03",
 ]);
-
-const MANUAL_TERMS = [
-  {
-    id: "SC-SEN-2026-DG",
-    n: "Darline Graham",
-    t: "sen",
-    s: "SC",
-    d: null,
-    p: "Republican",
-    c: null,
-    w: null,
-    a: "2026-07-13",
-    z: "2027-01-03",
-    sourceStart: "2026-07-13",
-    sourceEnd: "2027-01-02",
-    overridden: true,
-  },
-];
 
 function historicalCongressStart(end) {
   const match = end.match(/^(\d{4})-03-03$/);
@@ -182,6 +170,32 @@ function nextDay(date) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + 1);
   return value.toISOString().slice(0, 10);
+}
+
+// Some upstream terms date a party switch made partway through them in
+// `party_affiliations`. Split each service record at every switch so the
+// member carries the right party and caucus on both sides of it. Each
+// affiliation ends where the next begins, matching the exclusive `z`. The
+// dated affiliations are more precise than Voteview's per-Congress parties, so
+// the split records drop `q`. Starts after the first are exact, so they are
+// marked overridden to keep the cohort start-date adjustments off them.
+function splitAtPartyAffiliations(records, affiliations) {
+  if (!(affiliations?.length > 1)) return records;
+  return records.flatMap((record) => affiliations.flatMap((affiliation, index) => {
+    const next = affiliations[index + 1];
+    const start = index > 0 && affiliation.start > record.a ? affiliation.start : record.a;
+    const end = next && next.start < record.z ? next.start : record.z;
+    if (start >= end) return [];
+    return [{
+      ...record,
+      p: normalizedPartyName(affiliation.party, start, congressForDate(start)),
+      q: null,
+      c: affiliation.caucus ?? null,
+      a: start,
+      z: end,
+      overridden: record.overridden || start !== record.a,
+    }];
+  }));
 }
 
 async function buildMembers() {
@@ -240,7 +254,7 @@ async function buildMembers() {
         senateClass: term.class ?? null,
         overridden: Boolean(override),
       };
-      if (term.type !== "rep") return [compactTerm];
+      if (term.type !== "rep") return splitAtPartyAffiliations([compactTerm], term.party_affiliations);
       const applicableCorrections = [];
       let hasAuthoritativeCorrection = false;
       for (let congress = firstCongress; congress <= lastCongress; congress += 1) {
@@ -248,18 +262,20 @@ async function buildMembers() {
         if (corrections.length) hasAuthoritativeCorrection = true;
         applicableCorrections.push(...corrections);
       }
-      if (!hasAuthoritativeCorrection) return [compactTerm];
-      return applicableCorrections.flatMap((correction) => (correction.intervals ?? []).map((interval) => ({
-        ...compactTerm,
-        s: correction.state,
-        d: correction.district,
-        a: interval.start,
-        z: interval.end,
-        overridden: true,
-      })));
+      if (!hasAuthoritativeCorrection) return splitAtPartyAffiliations([compactTerm], term.party_affiliations);
+      return splitAtPartyAffiliations(
+        applicableCorrections.flatMap((correction) => (correction.intervals ?? []).map((interval) => ({
+          ...compactTerm,
+          s: correction.state,
+          d: correction.district,
+          a: interval.start,
+          z: interval.end,
+          overridden: true,
+        }))),
+        term.party_affiliations,
+      );
     }),
   );
-  terms.push(...MANUAL_TERMS);
 
   const houseTermsByCongressEnd = Map.groupBy(
     terms.filter((term) => term.t === "rep" && historicalCongressStart(term.sourceEnd)),

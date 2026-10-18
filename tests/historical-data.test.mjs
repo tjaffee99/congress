@@ -255,10 +255,83 @@ test("current House totals exclude six non-voting territorial delegates", () => 
 });
 
 test("a Senate vacancy remains visible until an appointed successor takes office", () => {
-  const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-12" && member.z > "2026-07-12");
-  const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
+  const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
+  const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-14" && member.z > "2026-07-14");
   assert.equal(beforeAppointment.length, 1);
-  assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham", "Tim Scott"]);
+  assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham Nordone", "Tim Scott"]);
+});
+
+test("mid-term party switchers carry the right party on both sides of the switch", () => {
+  const affiliationOn = (id, date, congress) => {
+    const active = members.filter((member) => member.id === id && member.a <= date && member.z > date);
+    assert.equal(active.length, 1, `${id} on ${date}`);
+    return [partyInCongress(active[0], congress), active[0].c];
+  };
+  assert.deepEqual(affiliationOn("K000401", "2025-01-03", 119), ["Republican", null]);
+  assert.deepEqual(affiliationOn("K000401", "2026-03-08", 119), ["Republican", null]);
+  assert.deepEqual(affiliationOn("K000401", "2026-03-09", 119), ["Independent", "Republican"]);
+  assert.deepEqual(affiliationOn("S000709", "2009-01-06", 111), ["Republican", null]);
+  assert.deepEqual(affiliationOn("S000709", "2009-04-29", 111), ["Republican", null]);
+  assert.deepEqual(affiliationOn("S000709", "2009-04-30", 111), ["Democrat", null]);
+  assert.deepEqual(affiliationOn("J000072", "2001-01-03", 107), ["Republican", null]);
+  assert.deepEqual(affiliationOn("J000072", "2001-06-05", 107), ["Republican", null]);
+  assert.deepEqual(affiliationOn("J000072", "2001-06-06", 107), ["Independent", "Democrat"]);
+  assert.deepEqual(affiliationOn("T000254", "1964-09-15", 88), ["Democrat", null]);
+  assert.deepEqual(affiliationOn("T000254", "1964-09-16", 88), ["Republican", null]);
+  assert.deepEqual(affiliationOn("M001183", "2023-01-03", 118), ["Democrat", null]);
+  assert.deepEqual(affiliationOn("M001183", "2024-05-31", 118), ["Independent", "Democrat"]);
+
+  const senate = Map.groupBy(members.filter((member) => member.t === "sen"), (member) => member.id);
+  const overlaps = [];
+  for (const [id, terms] of senate) {
+    for (let left = 0; left < terms.length; left += 1) {
+      for (let right = left + 1; right < terms.length; right += 1) {
+        const a = terms[left];
+        const b = terms[right];
+        if (a.a < b.z && b.a < a.z) overlaps.push(`${id}: ${a.a}-${a.z} / ${b.a}-${b.z}`);
+      }
+    }
+  }
+  assert.deepEqual(overlaps, []);
+});
+
+test("House seats stay occupied through a member's party switch", () => {
+  const occupantsByDay = (state, district, start, end) => {
+    const seat = members.filter((member) => member.t === "rep" && member.s === state && member.d === district);
+    const days = [];
+    for (let day = new Date(`${start}T00:00:00Z`); day < new Date(`${end}T00:00:00Z`); day.setUTCDate(day.getUTCDate() + 1)) {
+      const date = day.toISOString().slice(0, 10);
+      days.push([date, seat.filter((member) => member.a <= date && member.z > date)]);
+    }
+    return days;
+  };
+  for (const [state, district, id] of [["MI", 3, "A000367"], ["NJ", 2, "V000133"]]) {
+    const vacant = occupantsByDay(state, district, "2019-01-03", "2021-01-03")
+      .filter(([, occupants]) => occupants.length !== 1 || occupants[0].id !== id)
+      .map(([date]) => date);
+    assert.deepEqual(vacant, [], `${state}-${district}`);
+  }
+  const partyOn = (state, district, date) =>
+    activeHouse(date).find((member) => member.s === state && member.d === district)?.p;
+  assert.equal(partyOn("MI", 3, "2019-07-03"), "Republican");
+  assert.equal(partyOn("MI", 3, "2019-07-04"), "Independent");
+  assert.equal(partyOn("MI", 3, "2020-05-01"), "Libertarian");
+  assert.equal(partyOn("NJ", 2, "2019-12-18"), "Democrat");
+  assert.equal(partyOn("NJ", 2, "2019-12-19"), "Republican");
+  assert.equal(partyOn("CA", 3, "2025-06-01"), "Republican");
+});
+
+test("119th Congress members who died in office serve until their House Clerk date of death", () => {
+  // As for Raúl Grijalva, the seat falls vacant on the date of death.
+  for (const [id, state, district, death] of [
+    ["T000489", "TX", 18, "2025-03-05"],
+    ["G000551", "AZ", 7, "2025-03-13"],
+    ["L000578", "CA", 1, "2026-01-06"],
+    ["S001157", "GA", 13, "2026-04-22"],
+  ]) {
+    const term = members.find((member) => member.id === id && member.t === "rep" && member.a === "2025-01-03");
+    assert.deepEqual([term?.s, term?.d, term?.z], [state, district, death], id);
+  }
 });
 
 test("regular Senate terms begin on March 4 rather than the delayed session opening", () => {
