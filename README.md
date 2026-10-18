@@ -13,6 +13,30 @@ data from `public/data/` in the browser, so it needs no server.
 
 `npm run build` still produces the Cloudflare Worker build the site was created with.
 
+## Updating officeholder data
+
+`public/data/officials.json` is built from Wikidata, Wikipedia's Cabinet tables
+(snapshotted in `data/cabinet-officeholders.json`), senate.gov, history.house.gov
+and the congress-legislators roster:
+
+```bash
+mkdir -p work
+for file in legislators-current.yaml legislators-historical.yaml; do
+  curl -fsSL -o "work/$file" \
+    "https://raw.githubusercontent.com/unitedstates/congress-legislators/main/$file"
+done
+node scripts/scrape-cabinet-officeholders.mjs   # data/cabinet-officeholders.json
+node scripts/build-officials.mjs                # public/data/officials.json
+```
+
+Both scripts save each page they download under `work/sources/` and read those
+copies on later runs, so rebuilding gives the same JSON. Pass `--refresh` to
+download every source again. A page that is not what the parser expects (such as
+the error page history.house.gov sometimes redirects to) is retried and then
+fails the build instead of dropping officeholders. Wikidata and Wikipedia edits
+still change names and dates, so review the diff of the generated JSON and run
+`npm test` before committing.
+
 ---
 
 # vinext-starter

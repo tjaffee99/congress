@@ -426,6 +426,116 @@ test("the House Speaker roster preserves real vacancies instead of dropping hist
   assert.equal(activeOfficials("2023-10-10").some((official) => official.t === "Speaker of the House"), false);
 });
 
+test("every Congress has a House Speaker, and House floor leaders and whips since the 56th", () => {
+  const congressRange = (congress) => {
+    const year = 1789 + (congress - 1) * 2;
+    if (congress <= 72) return [`${year}-03-04`, `${year + 2}-03-04`];
+    if (congress === 73) return ["1933-03-04", "1935-01-03"];
+    return [`${year}-01-03`, `${year + 2}-01-03`];
+  };
+  for (let congress = 1; congress <= 119; congress += 1) {
+    const [start, end] = congressRange(congress);
+    const titles = new Set(officials
+      .filter((official) => official.h === "rep" && official.a < end && (!official.z || official.z > start))
+      .map((official) => official.t));
+    const expected = congress < 56
+      ? ["Speaker of the House"]
+      : ["Speaker of the House", "House majority leader", "House minority leader", "House majority whip", "House minority whip"];
+    assert.deepEqual(expected.filter((title) => !titles.has(title)), [], `Congress ${congress}`);
+  }
+});
+
+test("Vice Presidents with only language-neutral Wikidata names keep their terms", () => {
+  for (const [name, start, end, party, state] of [
+    ["Dick Cheney", "2001-01-20", "2009-01-20", "Republican", "WY"],
+    ["Kamala Harris", "2021-01-20", "2025-01-20", "Democrat", "CA"],
+  ]) {
+    for (const title of ["Vice President", "President of the Senate"]) {
+      const rows = officials.filter((official) => official.t === title && official.n === name);
+      assert.deepEqual(rows.map((official) => [official.a, official.z, official.p]), [[start, end, party]], `${name}, ${title}`);
+    }
+    assert.equal(officials.find((official) => official.t === "President of the Senate" && official.n === name)?.s, state);
+  }
+  assert.ok(officials.some((official) => official.t === "White House Chief of Staff" && official.n === "Dick Cheney"));
+});
+
+test("Justice Alito keeps serving despite an announced Wikidata end date", () => {
+  const alito = officials.filter((official) => official.t === "Associate Justice" && official.n === "Samuel Alito");
+  assert.deepEqual(alito.map((official) => [official.a, official.z]), [["2006-01-31", null]]);
+  const court = activeOfficials("2026-10-18").filter((official) => official.g === "Supreme Court");
+  assert.equal(court.length, 9);
+  assert.ok(court.some((official) => official.n === "Samuel Alito"));
+});
+
+test("the January 2025 acting secretaries match Wikipedia's Second cabinet of Donald Trump", () => {
+  // Acting position, appointee and days in the acting position, from the
+  // article's "Acting Cabinet officials" table.
+  const reference = [
+    ["Secretary of State", "Lisa D. Kenna", 1],
+    ["Secretary of the Treasury", "David Lebryk", 8],
+    ["Secretary of Defense", "Robert G. Salesses", 5],
+    ["Attorney General", "James McHenry", 16],
+    ["Secretary of the Interior", "Walter Cruickshank", 12],
+    ["Secretary of Agriculture", "Gary Washington", 24],
+    ["Secretary of Commerce", "Jeremy Pelter", 32],
+    ["Secretary of Labor", "Vince Micone", 50],
+    ["Secretary of Health & Human Services", "Dorothy Fink", 24],
+    ["Secretary of Housing & Urban Development", "Matt Ammon", 16],
+    ["Secretary of Transportation", "Judith Kaleta", 8],
+    ["Secretary of Energy", "Ingrid Kolb", 14],
+    ["Secretary of Education", "Denise L. Carter", 42],
+    ["Secretary of Veterans Affairs", "Todd B. Hunter", 16],
+    ["Secretary of Homeland Security", "Benjamine Huffman", 5],
+  ];
+  const addDays = (date, days) => new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+  const cabinet = activeCabinet("2025-01-20");
+  for (const [title, name, days] of reference) {
+    const holders = cabinet.filter((official) => official.t === title);
+    const end = addDays("2025-01-20", days);
+    assert.deepEqual(holders.map((official) => [official.n, official.x, official.z]), [[name, true, end]], title);
+    const successor = activeCabinet(end).filter((official) => official.t === title);
+    assert.equal(successor.length, 1, `${title} on ${end}`);
+    assert.notEqual(successor[0].n, name, `${title} on ${end}`);
+  }
+  assert.deepEqual(activeCabinet("2025-02-03").filter((official) => official.t === "Secretary of Energy").map((official) => [official.n, official.x]), [["Chris Wright", false]]);
+});
+
+test("acting service is flagged only for the acting part of a tenure", () => {
+  const holder = (date, title) => activeOfficials(date).filter((official) => official.t === title).map((official) => [official.n, official.x]);
+  assert.deepEqual(holder("1800-12-01", "Secretary of State"), [["John Marshall", false]]);
+  assert.deepEqual(holder("1801-02-10", "Secretary of State"), [["John Marshall", true]]);
+  assert.deepEqual(holder("1814-09-30", "Secretary of State"), [["James Monroe", false]]);
+  assert.deepEqual(holder("1814-12-01", "Secretary of State"), [["James Monroe", true]]);
+  assert.deepEqual(holder("1816-01-01", "Secretary of State"), [["James Monroe", false]]);
+  assert.deepEqual(holder("1915-06-10", "Secretary of State"), [["Robert Lansing", true]]);
+  assert.deepEqual(holder("1915-07-01", "Secretary of State"), [["Robert Lansing", false]]);
+  assert.deepEqual(holder("2024-01-01", "Secretary of Labor"), [["Julie Su", true]]);
+  assert.deepEqual(holder("2019-02-01", "Secretary of the Interior"), [["David Bernhardt", true]]);
+  assert.deepEqual(holder("2019-05-01", "Secretary of the Interior"), [["David Bernhardt", false]]);
+
+  for (const [key, rows] of Map.groupBy(officials, (official) => `${official.t}|${official.n}`)) {
+    rows.sort((a, b) => a.a.localeCompare(b.a));
+    rows.slice(1).forEach((row, index) => assert.ok(row.a >= rows[index].z, `${key} from ${row.a}`));
+  }
+});
+
+test("Senate leadership names and tenures are not duplicated across sources", () => {
+  const presidentsProTempore = officials.filter((official) => official.t === "President pro tempore");
+  for (const start of new Set(presidentsProTempore.map((official) => official.a))) {
+    assert.ok(activeOfficials(start).filter((official) => official.t === "President pro tempore").length <= 1, start);
+  }
+  assert.deepEqual(holderNames("2016-01-01", "President pro tempore"), ["Orrin Hatch"]);
+  assert.deepEqual(holderNames("2022-01-01", "President pro tempore"), ["Patrick Leahy"]);
+  assert.deepEqual(holderNames("1965-01-01", "Senate majority leader"), ["Michael J. Mansfield"]);
+  assert.deepEqual(holderNames("1990-01-01", "Senate minority leader"), ["Robert J. Dole"]);
+  assert.deepEqual(holderNames("1997-01-01", "Senate minority leader"), ["Thomas A. Daschle"]);
+  assert.equal(officials.some((official) => official.g === "Congressional leadership" && /\(/.test(official.n)), false);
+});
+
+function holderNames(date, title) {
+  return activeOfficials(date).filter((official) => official.t === title).map((official) => official.n);
+}
+
 test("every occupied modern congressional leadership card has party and state", () => {
   for (const date of ["2004-08-23", "2026-07-26"]) {
     const leadership = activeOfficials(date).filter((official) => official.g === "Congressional leadership");

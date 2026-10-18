@@ -1,6 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { actingShades, decodeHtml, endActingTenuresAtSuccession, isActingRow } from "./lib/cabinet-tables.mjs";
+import { fetchSource } from "./lib/sources.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -30,18 +32,6 @@ const offices = [
   ["Secretary of Homeland Security", "United States Secretary of Homeland Security", 24, "2003-01-24"],
 ];
 
-function decodeHtml(value) {
-  return value
-    .replace(/<[^>]*>/g, "")
-    .replace(/&#(\d+);/g, (_, number) => String.fromCodePoint(Number(number)))
-    .replace(/&#x([\da-f]+);/gi, (_, number) => String.fromCodePoint(Number.parseInt(number, 16)))
-    .replaceAll("&amp;", "&")
-    .replaceAll("&quot;", '"')
-    .replaceAll("&#39;", "'")
-    .replaceAll("&nbsp;", " ")
-    .trim();
-}
-
 function wikipediaUrl(href) {
   let url = null;
   if (href.startsWith("https://en.wikipedia.org/")) url = href.replaceAll("&amp;", "&");
@@ -65,11 +55,12 @@ function isoDate(value) {
 
 async function scrapeOffice([title, page, order, created, discontinued]) {
   const url = `https://en.wikipedia.org/wiki/${page.replaceAll(" ", "_")}`;
-  const response = await fetch(url, {
-    headers: { "user-agent": "AmericanAtlas/1.0 (historical civic atlas; https://congress.theojaffee.net)" },
+  const { text: html } = await fetchSource(url, {
+    validate: (text) => {
+      if (!text.includes('class="fn"')) throw new Error("no officeholder table");
+    },
   });
-  if (!response.ok) throw new Error(`${title}: Wikipedia returned ${response.status}`);
-  const html = await response.text();
+  const shades = actingShades(html);
   const rows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)].map((match) => match[1]);
   const holders = [];
   let previousPerson = null;
@@ -110,7 +101,7 @@ async function scrapeOffice([title, page, order, created, discontinued]) {
       h: null,
       p: null,
       s: null,
-      x: /\bActing\b/i.test(row),
+      x: isActingRow(row, shades),
       w: wikipediaUrl(officeholder[1]),
       a: start,
       z: end,
@@ -162,14 +153,16 @@ async function scrapeOffice([title, page, order, created, discontinued]) {
       w: "https://en.wikipedia.org/wiki/Sean_Duffy",
     });
   }
+  endActingTenuresAtSuccession(unique);
   if (!unique.length) throw new Error(`${title}: no officeholders parsed`);
   console.log(`${title}: ${unique.length} tenures`);
   return unique;
 }
 
-const officeholders = (await Promise.all(offices.map(scrapeOffice)))
-  .flat()
-  .sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
+// One page at a time: Wikipedia rate-limits bursts of requests.
+const officeholders = [];
+for (const office of offices) officeholders.push(...await scrapeOffice(office));
+officeholders.sort((a, b) => a.o - b.o || a.a.localeCompare(b.a));
 
 const out = path.join(root, "data");
 await mkdir(out, { recursive: true });

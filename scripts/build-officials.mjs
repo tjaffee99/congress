@@ -1,6 +1,21 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import * as yaml from "js-yaml";
+import {
+  congressDateRange,
+  congressOnDate,
+  fullName,
+  historyHousePages,
+  historyHouseRows,
+  houseFloorLeaders,
+  housePartyWhips,
+  houseSpeakers,
+  leadershipRoleMap,
+  legislatorWikipediaUrl,
+  textFromHtml,
+} from "./lib/house-leadership.mjs";
+import { fetchSource } from "./lib/sources.mjs";
+import { positionHeldRows, positionHeldUrl } from "./lib/wikidata.mjs";
 
 const positions = [
   ["Q11696", "President", "Executive", 1],
@@ -328,61 +343,21 @@ const falseOfficeClaims = new Set([
   "Small Business Administrator|Marianne Markowitz",
 ]);
 
-const leadershipRoleMap = new Map([
-  ["Speaker of the House", ["Speaker of the House", 40, "rep"]],
-  ["President Pro Tempore of the Senate", ["President pro tempore", 41, "sen"]],
-  ["Senate Majority Leader", ["Senate majority leader", 42, "sen"]],
-  ["Senate Majority Whip", ["Senate majority whip", 43, "sen"]],
-  ["Senate Minority Leader", ["Senate minority leader", 44, "sen"]],
-  ["Senate Minority Whip", ["Senate minority whip", 45, "sen"]],
-  ["House Majority Leader", ["House majority leader", 42, "rep"]],
-  ["House Majority Whip", ["House majority whip", 43, "rep"]],
-  ["House Minority Leader", ["House minority leader", 44, "rep"]],
-  ["House Minority Whip", ["House minority whip", 45, "rep"]],
-]);
-
-function fullName(person) {
-  return person.name.official_full ?? [person.name.first, person.name.middle, person.name.last, person.name.suffix]
-    .filter(Boolean)
-    .join(" ");
-}
-
-function legislatorWikipediaUrl(person) {
-  return person?.id.wikipedia
-    ? `https://en.wikipedia.org/wiki/${encodeURIComponent(person.id.wikipedia).replaceAll("%20", "_")}`
-    : null;
-}
-
 function nextDay(date) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() + 1);
   return value.toISOString().slice(0, 10);
 }
 
-function congressDateRange(congress) {
-  const startYear = 1789 + (congress - 1) * 2;
-  if (congress <= 72) return [`${startYear}-03-04`, `${startYear + 2}-03-04`];
-  if (congress === 73) return ["1933-03-04", "1935-01-03"];
-  return [`${startYear}-01-03`, `${startYear + 2}-01-03`];
+// The Senate's leadership pages have no single table to check like
+// history.house.gov's, so require that they reach the sitting Congress.
+function requireSittingCongress(label, congresses, asOf) {
+  const sitting = congressOnDate(asOf.slice(0, 10));
+  const last = Math.max(0, ...congresses);
+  if (last < sitting - 1) throw new Error(`${label}: last row is Congress ${last || "(none)"}, but Congress ${sitting} was sitting on ${asOf.slice(0, 10)}`);
 }
 
-function textFromHtml(value) {
-  return value
-    .replace(/<[^>]+>/g, "")
-    .replaceAll("&nbsp;", " ")
-    .replaceAll("&ndash;", "–")
-    .replaceAll("&#150;", "–")
-    .replaceAll("&amp;", "&")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function senateFloorLeaders() {
-  const response = await fetch("https://www.senate.gov/senators/majority-minority-leaders.htm", {
-    headers: { "User-Agent": "AmericanStateAtlas/1.0" },
-  });
-  if (!response.ok) throw new Error(`Senate leadership query failed: ${response.status}`);
-  const html = await response.text();
+function senateFloorLeaders(html, asOf) {
   const transitions = new Map([
     ["55|Senate minority leader", ["1898-04-29"]],
     ["59|Senate majority leader", ["1906-06-09"]],
@@ -398,6 +373,7 @@ async function senateFloorLeaders() {
     ["104|Senate majority leader", ["1996-06-12"]],
   ]);
   const leaders = [];
+  const congresses = [];
   for (const row of html.matchAll(/<tr>([\s\S]*?)<\/tr>/g)) {
     const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
     if (cells.length < 3) continue;
@@ -405,10 +381,12 @@ async function senateFloorLeaders() {
     const congressMatch = congressText.match(/(\d+)(?:st|nd|rd|th) Congress/);
     if (!congressMatch) continue;
     const congress = Number(congressMatch[1]);
+    congresses.push(congress);
     const [congressStart, congressEnd] = congressDateRange(congress);
     for (const [cellIndex, title, order] of [[1, "Senate majority leader", 42], [2, "Senate minority leader", 44]]) {
+      // Names may end with a nickname: "Robert J. Dole (Bob)".
       const people = [...cells[cellIndex].matchAll(/<a[^>]*>[\s\S]*?<span[^>]*>([\s\S]*?)<\/span>\s*\(([DRI])-([A-Z]{2})\)<\/a>/g)]
-        .map((match) => ({ name: textFromHtml(match[1]), party: match[2] === "D" ? "Democrat" : match[2] === "R" ? "Republican" : "Independent", state: match[3] }));
+        .map((match) => ({ name: textFromHtml(match[1]).replace(/\s+\([^)]*\)$/, ""), party: match[2] === "D" ? "Democrat" : match[2] === "R" ? "Republican" : "Independent", state: match[3] }));
       const dates = transitions.get(`${congress}|${title}`) ?? [];
       people.forEach((person, index) => leaders.push({
         id: `SENATE-${congress}-${title}-${index}`,
@@ -425,6 +403,7 @@ async function senateFloorLeaders() {
       }));
     }
   }
+  requireSittingCongress("Senate floor leaders", congresses, asOf);
   const withoutExceptionalCongresses = leaders.filter((leader) => ![107, 117].some((congress) => leader.id.startsWith(`SENATE-${congress}-`)));
   return withoutExceptionalCongresses.concat([
     [107, "Senate majority leader", 42, "Thomas A. Daschle", "Democrat", "SD", "2001-01-03", "2001-01-20"],
@@ -458,12 +437,7 @@ function leadershipYearStart(year) {
   return `${year}-01-01`;
 }
 
-async function senatePartyWhips(legislators, floorLeaders) {
-  const response = await fetch("https://www.senate.gov/about/parties-leadership/party-whips.htm", {
-    headers: { "User-Agent": "AmericanStateAtlas/1.0" },
-  });
-  if (!response.ok) throw new Error(`Senate whip query failed: ${response.status}`);
-  const html = await response.text();
+function senatePartyWhips(html, legislators, floorLeaders) {
   const partyRows = new Map([["Republican", []], ["Democrat", []]]);
 
   for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
@@ -488,6 +462,9 @@ async function senatePartyWhips(legislators, floorLeaders) {
       a: party === "Democrat" && startYear === 1913 ? "1913-05-28" : leadershipYearStart(startYear),
       listedEnd: endYear ? leadershipYearStart(endYear) : null,
     });
+  }
+  for (const [party, rows] of partyRows) {
+    if (!rows.some((row) => !row.listedEnd)) throw new Error(`Senate whips: no sitting ${party} whip`);
   }
 
   const whips = [];
@@ -522,209 +499,22 @@ async function senatePartyWhips(legislators, floorLeaders) {
   return whips;
 }
 
-function houseMajorityParty(legislators, start, end) {
-  const byParty = new Map();
-  for (const person of legislators) {
-    const party = person.terms.find((term) => term.type === "rep" && term.start < end && term.end >= start)?.party;
-    if (party) byParty.set(party, (byParty.get(party) ?? 0) + 1);
-  }
-  return [...byParty.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-}
-
-async function housePartyWhips(legislators) {
-  const sources = [
-    ["https://history.house.gov/People/Office/Democratic-Whips/", "Democrat"],
-    ["https://history.house.gov/People/Office/Republican-Whips/", "Republican"],
-  ];
-  const transitions = new Map([
-    ["60|Democrat", ["1908-02-01"]],
-    ["70|Democrat", ["1929-03-03"]],
-    ["77|Democrat", ["1942-06-08"]],
-    ["79|Democrat", ["1946-01-01"]],
-    ["87|Democrat", ["1962-01-10"]],
-    ["101|Democrat", ["1989-06-14"]],
-    ["102|Democrat", ["1991-09-11"]],
-    ["107|Democrat", ["2002-01-15"]],
-    ["72|Republican", ["1932-04-08"]],
-    ["78|Republican", ["1943-06-02"]],
-    ["101|Republican", ["1989-03-22"]],
-    ["113|Republican", ["2014-07-31"]],
-  ]);
-  const whips = [];
-
-  for (const [url, party] of sources) {
-    const response = await fetch(url, { headers: { "User-Agent": "AmericanStateAtlas/1.0" } });
-    if (!response.ok) throw new Error(`House whip query failed: ${response.status}`);
-    const html = await response.text();
-    const rowsByCongress = new Map();
-    for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
-      const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
-      if (cells.length < 3) continue;
-      const congressMatch = textFromHtml(cells[0]).match(/(\d+)(?:st|nd|rd|th)/);
-      if (!congressMatch) continue;
-      const congress = Number(congressMatch[1]);
-      const [start, end] = congressDateRange(congress);
-      const sourceName = textFromHtml(cells[1]);
-      const state = textFromHtml(cells[2]);
-      const surname = sourceName.split(",")[0].replace(/[^A-Z]/g, "");
-      const person = legislators.find((candidate) =>
-        candidate.name.last.toUpperCase().replace(/[^A-Z]/g, "") === surname
-        && candidate.terms.some((term) => term.type === "rep" && term.state === state && term.start < end && term.end >= start),
-      );
-      const people = rowsByCongress.get(congress) ?? [];
-      people.push({
-        id: person?.id.bioguide ?? `HOUSE-WHIP-${party}-${congress}-${people.length}`,
-        n: person ? fullName(person) : sourceName.split(",").reverse().join(" ").trim(),
-        w: legislatorWikipediaUrl(person),
-        s: state,
-      });
-      rowsByCongress.set(congress, people);
-    }
-
-    for (const [congress, people] of rowsByCongress) {
-      const [start, end] = congressDateRange(congress);
-      const majority = houseMajorityParty(legislators, start, end) === party;
-      const title = majority ? "House majority whip" : "House minority whip";
-      const order = majority ? 43 : 45;
-      const dates = transitions.get(`${congress}|${party}`) ?? [];
-      people.forEach((person, index) => {
-        const matched = legislators.find((candidate) => candidate.id.bioguide === person.id);
-        const exactRole = matched?.leadership_roles?.find((role) => leadershipRoleMap.get(role.title)?.[0] === title && role.start < end && (!role.end || role.end > start));
-        whips.push({
-          ...person,
-          t: title,
-          g: "Congressional leadership",
-          o: order,
-          h: "rep",
-          p: party,
-          x: false,
-          a: exactRole?.start ?? (index === 0 ? start : dates[index - 1] ?? start),
-          z: exactRole?.end ?? (index < people.length - 1 ? dates[index] ?? end : end),
-        });
-      });
-    }
-  }
-  return whips;
-}
-
-async function houseSpeakers(legislators) {
-  const response = await fetch("https://history.house.gov/people/office/speakers-list/", {
-    headers: { "User-Agent": "AmericanStateAtlas/1.0" },
-  });
-  if (!response.ok) throw new Error(`House Speaker query failed: ${response.status}`);
-  const html = await response.text();
-  const departureDates = new Map([
-    ["13|CLAY", "1814-01-19"],
-    ["16|CLAY", "1820-10-28"],
-    ["23|STEVENSON", "1834-06-02"],
-    ["40|COLFAX", "1869-03-03"],
-    ["44|KERR", "1876-08-19"],
-    ["73|RAINEY", "1934-08-19"],
-    ["74|BYRNS", "1936-06-04"],
-    ["76|BANKHEAD", "1940-09-15"],
-    ["87|RAYBURN", "1961-11-16"],
-    ["101|WRIGHT", "1989-06-06"],
-    ["114|BOEHNER", "2015-10-29"],
-    ["118|MCCARTHY", "2023-10-03"],
-  ]);
-  const rowsByCongress = new Map();
-
-  for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
-    const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
-    if (cells.length < 4) continue;
-    const congressMatch = textFromHtml(cells[0]).match(/(\d+)(?:st|nd|rd|th)/);
-    const electedMatch = row[1].match(/sort="(\d{8})"/g)?.at(-1)?.match(/(\d{8})/);
-    if (!congressMatch || !electedMatch) continue;
-    const congress = Number(congressMatch[1]);
-    const elected = electedMatch[1].replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
-    const sourceName = textFromHtml(cells[1]);
-    const state = textFromHtml(cells[2]);
-    const surname = sourceName.split(",")[0].replace(/[^A-Z]/g, "");
-    const [, congressEnd] = congressDateRange(congress);
-    const person = legislators.find((candidate) =>
-      candidate.name.last.toUpperCase().replace(/[^A-Z]/g, "") === surname
-      && candidate.terms.some((term) => term.type === "rep" && term.state === state && term.start <= elected && term.end >= elected),
+// Wikidata does not record acting service. Where its tenure only overlaps
+// tenures that the Wikipedia tables or the hand-entered rows mark as acting
+// (Vince Micone at Labor, John Marshall's last month at State), it describes
+// that acting service. Without this, merging it into the neighboring confirmed
+// term would spread the acting flag across the whole term.
+function inheritActingStatus(rows) {
+  const fromWikidata = (row) => /^Q\d+$/.test(row.id);
+  const byHolder = Map.groupBy(rows.filter((row) => !fromWikidata(row)), (row) => `${row.t}|${row.n}`);
+  for (const row of rows) {
+    if (row.x || !fromWikidata(row)) continue;
+    const overlapping = (byHolder.get(`${row.t}|${row.n}`) ?? []).filter((other) =>
+      other.a < (row.z ?? "9999-12-31") && row.a < (other.z ?? "9999-12-31"),
     );
-    const term = person?.terms.find((candidate) => candidate.type === "rep" && candidate.state === state && candidate.start <= elected && candidate.end >= elected);
-    const speakers = rowsByCongress.get(congress) ?? [];
-    speakers.push({
-      id: person?.id.bioguide ?? `HOUSE-SPEAKER-${congress}-${speakers.length}`,
-      n: person ? fullName(person) : sourceName.split(",").reverse().join(" ").trim(),
-      t: "Speaker of the House",
-      g: "Congressional leadership",
-      o: 40,
-      h: "rep",
-      p: term?.party ?? null,
-      s: state,
-      x: false,
-      w: legislatorWikipediaUrl(person),
-      a: elected,
-      z: congressEnd,
-      surname,
-    });
-    rowsByCongress.set(congress, speakers);
+    if (overlapping.length && overlapping.every((other) => other.x)) row.x = true;
   }
-
-  const speakers = [];
-  for (const [congress, rows] of rowsByCongress) {
-    rows.sort((a, b) => a.a.localeCompare(b.a));
-    rows.forEach((row, index) => {
-      const departure = departureDates.get(`${congress}|${row.surname}`);
-      const speaker = { ...row };
-      delete speaker.surname;
-      speaker.z = departure ?? rows[index + 1]?.a ?? speaker.z;
-      speakers.push(speaker);
-    });
-  }
-  return speakers;
-}
-
-async function houseFloorLeaders(legislators) {
-  const sources = [
-    ["https://history.house.gov/People/Office/Majority-Leaders/", "House majority leader", 42],
-    ["https://history.house.gov/People/Office/Minority-Leaders/", "House minority leader", 44],
-  ];
-  const leaders = [];
-  for (const [url, title, order] of sources) {
-    const response = await fetch(url, { headers: { "User-Agent": "AmericanStateAtlas/1.0" } });
-    if (!response.ok) throw new Error(`House leadership query failed: ${response.status}`);
-    const html = await response.text();
-    for (const row of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/g)) {
-      const cells = [...row[1].matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g)].map((match) => match[1]);
-      if (cells.length < 4) continue;
-      const congressMatch = textFromHtml(cells[0]).match(/(\d+)(?:st|nd|rd|th) \((\d{4})–(\d{4})\)/);
-      if (!congressMatch) continue;
-      const congress = Number(congressMatch[1]);
-      const party = textFromHtml(cells[2]);
-      const state = textFromHtml(cells[3]);
-      const sourceName = textFromHtml(cells[1]);
-      const surname = sourceName.split(",")[0].replace(/[^A-Z]/g, "");
-      const [start, end] = congressDateRange(congress);
-      const person = legislators.find((candidate) =>
-        candidate.name.last.toUpperCase().replace(/[^A-Z]/g, "") === surname
-        && candidate.terms.some((term) => term.type === "rep" && term.state === state && term.party === party && term.start < end && term.end > start),
-      );
-      const exactRole = person?.leadership_roles?.find((role) => {
-        const mapped = leadershipRoleMap.get(role.title);
-        return mapped?.[0] === title && role.start < end && (!role.end || role.end > start);
-      });
-      leaders.push({
-        id: person?.id.bioguide ?? `HOUSE-${congress}-${title}-${leaders.length}`,
-        n: person ? fullName(person) : sourceName.split(",").reverse().join(" ").trim(),
-        t: title,
-        g: "Congressional leadership",
-        o: order,
-        h: "rep",
-        p: party,
-        s: state,
-        x: false,
-        w: legislatorWikipediaUrl(person),
-        a: exactRole?.start ?? start,
-        z: exactRole?.end ?? end,
-      });
-    }
-  }
-  return leaders;
+  return rows;
 }
 
 function mergeSameOfficeholder(rows) {
@@ -744,6 +534,11 @@ function mergeSameOfficeholder(rows) {
       previous.w ??= row.w;
       previous.x ||= row.x;
       continue;
+    }
+    // Acting and confirmed service stay separate, but a table that ends one
+    // the day before the other begins (James Monroe, 1814) is not a vacancy.
+    if (previous && previous.n === row.n && previous.t === row.t && previous.z && row.a === nextDay(previous.z)) {
+      previous.z = row.a;
     }
     merged.push({ ...row });
   }
@@ -825,36 +620,33 @@ const wikipediaCabinetTitles = new Set(wikipediaCabinetOfficeholders.map((offici
 const wikipediaCabinetByTitle = Map.groupBy(wikipediaCabinetOfficeholders, (official) => official.t);
 
 const positionById = Object.fromEntries(positions.map((position) => [position[0], position]));
-const values = positions.map(([id]) => `wd:${id}`).join(" ");
-const query = `
-SELECT ?person ?personLabel ?position ?start ?end ?article WHERE {
-  VALUES ?position { ${values} }
-  ?person wdt:P31 wd:Q5; p:P39 ?statement .
-  ?statement ps:P39 ?position .
-  OPTIONAL { ?statement pq:P580 ?start }
-  OPTIONAL { ?statement pq:P582 ?end }
-  OPTIONAL {
-    ?article schema:about ?person;
-      schema:isPartOf <https://en.wikipedia.org/>.
-  }
-  ?person rdfs:label ?personLabel .
-  FILTER(LANG(?personLabel) = "en")
-}`;
+// Wikidata answers overload with an HTML or plain-text notice instead of JSON.
+const wikidata = await fetchSource(positionHeldUrl(positions.map(([id]) => id)), {
+  validate: (text) => {
+    if (!JSON.parse(text).results.bindings.length) throw new Error("no results");
+  },
+});
+const positionsHeld = positionHeldRows(JSON.parse(wikidata.text).results.bindings, wikidata.fetchedAt);
 
-const sparql = new URL("https://query.wikidata.org/sparql");
-sparql.searchParams.set("query", query);
-sparql.searchParams.set("format", "json");
-const response = await fetch(sparql, { headers: { "User-Agent": "AmericanStateAtlas/1.0" } });
-if (!response.ok) throw new Error(`Wikidata query failed: ${response.status}`);
-const bindings = (await response.json()).results.bindings;
+const housePages = {};
+for (const [key, page] of Object.entries(historyHousePages)) {
+  housePages[key] = await fetchSource(page.url, {
+    validate: (html, fetchedAt) => historyHouseRows(html, { ...page, asOf: fetchedAt }),
+  });
+}
+const senateLeaderPage = await fetchSource("https://www.senate.gov/senators/majority-minority-leaders.htm", {
+  validate: (html, fetchedAt) => senateFloorLeaders(html, fetchedAt),
+});
+const senateWhipPage = await fetchSource("https://www.senate.gov/about/parties-leadership/party-whips.htm", {
+  validate: (html) => senatePartyWhips(html, legislators, []),
+});
+const sources = [wikidata, ...Object.values(housePages), senateLeaderPage, senateWhipPage];
 
-let officials = bindings.map((row) => {
-  const person = row.person.value.split("/").pop();
-  const position = row.position.value.split("/").pop();
-  const [, title, group, order, chamber] = positionById[position];
+let officials = positionsHeld.map((row) => {
+  const [, title, group, order, chamber] = positionById[row.position];
   return {
-    id: person,
-    n: row.personLabel.value,
+    id: row.person,
+    n: row.name,
     t: title,
     g: group,
     o: order,
@@ -862,9 +654,9 @@ let officials = bindings.map((row) => {
     p: null,
     s: null,
     x: false,
-    w: row.article?.value ?? null,
-    a: row.start?.value?.slice(0, 10) ?? null,
-    z: row.end?.value?.slice(0, 10) ?? null,
+    w: row.article,
+    a: row.start,
+    z: row.end,
   };
 }).filter((official) =>
   official.a
@@ -897,12 +689,12 @@ officials = officials.filter((official) => ![
 officials.push(...wikipediaCabinetOfficeholders);
 officials.push(...formerCabinetOfficeholders());
 officials.push(...intermittentCabinetOfficeholders());
-officials.push(...await houseSpeakers(legislators));
-const senateLeaders = await senateFloorLeaders();
+officials.push(...houseSpeakers(housePages.speakers, legislators));
+const senateLeaders = senateFloorLeaders(senateLeaderPage.text, senateLeaderPage.fetchedAt);
 officials.push(...senateLeaders);
-officials.push(...await senatePartyWhips(legislators, senateLeaders));
-officials.push(...await houseFloorLeaders(legislators));
-officials.push(...await housePartyWhips(legislators));
+officials.push(...senatePartyWhips(senateWhipPage.text, legislators, senateLeaders));
+officials.push(...houseFloorLeaders(housePages, legislators));
+officials.push(...housePartyWhips(housePages, legislators));
 officials = applyCurrentOfficeholderCorrections(officials);
 
 for (const person of legislators) {
@@ -915,9 +707,13 @@ for (const person of legislators) {
     const term = person.terms.find((candidate) =>
       candidate.type === chamber && candidate.start <= role.start && candidate.end > role.start,
     );
+    // Wikidata may already hold this tenure under another form of the name
+    // ("Patrick Leahy" for "Patrick J. Leahy"); share it so the two merge.
+    const wikidataName = person.id.wikidata
+      && officials.find((official) => official.id === person.id.wikidata && official.t === title)?.n;
     officials.push({
       id: person.id.bioguide,
-      n: fullName(person),
+      n: wikidataName || fullName(person),
       t: title,
       g: "Congressional leadership",
       o: order,
@@ -956,7 +752,7 @@ for (const official of officials) {
   if (official.t === "President") official.p = presidentParties.get(official.n) ?? null;
 }
 
-officials = mergeSameOfficeholder(officials);
+officials = mergeSameOfficeholder(inheritActingStatus(officials));
 
 const presidents = officials.filter((official) => official.t === "President");
 for (const official of officials) {
@@ -996,4 +792,9 @@ officials = officials
 const out = path.join(root, "public/data");
 await mkdir(out, { recursive: true });
 await writeFile(path.join(out, "officials.json"), JSON.stringify(officials));
+const cachedSources = sources.filter((source) => source.cached);
+if (cachedSources.length) {
+  const oldest = cachedSources.map((source) => source.fetchedAt).sort()[0].slice(0, 10);
+  console.log(`Read ${cachedSources.length} of ${sources.length} sources from work/sources (oldest ${oldest}); pass --refresh to download them again`);
+}
 console.log(`Wrote ${officials.length.toLocaleString()} cleaned office tenures`);
