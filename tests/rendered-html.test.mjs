@@ -21,7 +21,8 @@ test("server-renders the finished American Atlas shell", async () => {
 
   const html = await response.text();
   assert.match(html, /<title>American Atlas/);
-  assert.match(html, /DATE IN VIEW/);
+  assert.match(html, /Date in view/);
+  assert.match(html, /id="panel"/);
   assert.match(html, /House districts/);
   assert.match(html, /aria-label="Map zoom controls"/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape/);
@@ -49,11 +50,14 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /governmentTermWikipediaHref/);
   assert.match(page, /\$\{congressOrdinal\(congress\)\}_United_States_Congress/);
   assert.match(page, /className="congress-link"/);
-  assert.match(page, /className="term-card-congress"/);
   assert.match(page, /className="term-seat-count"/);
   assert.match(page, /\{activeMembers\.length\}<\/span><span>\/\{chamberSummary\.seatTotal\}/);
-  assert.match(page, /House seats filled \/ allotted/);
-  assert.match(page, /Senate seats filled \/ allotted/);
+  assert.match(page, /for a majority/);
+  assert.match(page, /<aside id="panel"/);
+  assert.match(page, /data-sheet=\{sheet\}/);
+  assert.match(page, /viewBox=\{`\$\{frame\.x\} \$\{frame\.y\} \$\{frame\.w\} \$\{frame\.h\}`\}/);
+  assert.match(page, /new ResizeObserver\(updateFrame\)/);
+  assert.match(page, /className="date-display"/);
   assert.match(page, /Congress Legislators · Voteview · Wikidata/);
   assert.match(page, /"Anti-Administration": "#789382"/);
   assert.match(page, /PARTY_SEGMENT_ORDER/);
@@ -111,7 +115,7 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /open=\{openOfficialGroups\[group\]\}/);
   assert.match(page, /onToggle=/);
   assert.doesNotMatch(page, /open=\{group !== "Cabinet" \|\| rows\.length < 10\}/);
-  assert.match(page, /SENATE CONTROL/);
+  assert.match(page, /\$\{chamberName\} party control/);
   assert.match(page, /majority-marker/);
   assert.match(page, /LEADERSHIP_OFFICES/);
   assert.match(page, /leadership-vacant/);
@@ -122,6 +126,7 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /Unfilled Senate seat/);
   assert.doesNotMatch(page, /className="portrait"|initials\(/);
   assert.match(layout, /American Atlas/);
+  assert.doesNotMatch(layout, /next\/font\/google/);
   assert.match(layout, /metadataBase: new URL\("https:\/\/congress\.theojaffee\.net"\)/);
   assert.match(layout, /american-atlas-social-2026\.png/);
   assert.match(layout, /card: "summary_large_image"/);

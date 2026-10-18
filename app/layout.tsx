@@ -1,9 +1,5 @@
-import type { Metadata } from "next";
-import { Libre_Franklin, Newsreader } from "next/font/google";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
-
-const sans = Libre_Franklin({ variable: "--font-sans", subsets: ["latin"] });
-const serif = Newsreader({ variable: "--font-serif", subsets: ["latin"] });
 
 const title = "American Atlas — A Day-by-Day Look at US Government";
 const description = "Explore the U.S. House, Senate, executive branch, Supreme Court, and congressional leadership on any date since July 4, 1776.";
@@ -25,7 +21,7 @@ export const metadata: Metadata = {
       width: 1200,
       height: 630,
       type: "image/png",
-      alt: "American Atlas timeline and Senate map",
+      alt: "American Atlas House map with its control panel and timeline",
     }],
   },
   twitter: {
@@ -36,6 +32,16 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#F2F0EB" },
+    { media: "(prefers-color-scheme: dark)", color: "#1F2124" },
+  ],
+};
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body className={`${sans.variable} ${serif.variable}`}>{children}</body></html>;
+  return <html lang="en"><body>{children}</body></html>;
 }
