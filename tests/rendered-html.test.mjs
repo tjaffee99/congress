@@ -54,6 +54,8 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /\{activeMembers\.length\}<\/span><span>\/\{chamberSummary\.seatTotal\}/);
   assert.match(page, /for a majority/);
   assert.match(page, /<aside id="panel"/);
+  assert.match(page, /\{!isPhone && chamberCard\}/);
+  assert.match(page, /\{isPhone && chamberCard\}/);
   assert.match(page, /data-sheet=\{sheet\}/);
   assert.match(page, /viewBox=\{`\$\{frame\.x\} \$\{frame\.y\} \$\{frame\.w\} \$\{frame\.h\}`\}/);
   assert.match(page, /new ResizeObserver\(updateFrame\)/);
@@ -104,7 +106,8 @@ test("the product source contains the historical map and no starter preview", as
   assert.match(page, /const mapPathElements = useMemo/);
   assert.match(page, /zoomLayerRef\.current\?\.setAttribute/);
   assert.match(page, /onPointerDown=\{handleMapPointerDown\}/);
-  assert.match(page, /addEventListener\("wheel", handleMapWheel, \{ passive: false \}\)/);
+  assert.match(page, /window\.addEventListener\("wheel", handleMapWheel, \{ passive: false \}\)/);
+  assert.match(page, /window\.addEventListener\("gesturechange", changeGesture\)/);
   assert.match(page, /beginPinch/);
   assert.match(page, /officialOfficesForDate/);
   assert.match(page, /official-vacant/);

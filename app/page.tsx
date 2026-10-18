@@ -11,6 +11,7 @@ import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
 import { clampZoom, wheelZoomFactor } from "./map-input.mjs";
 import { FRAME_HEIGHT, FRAME_WIDTH, fitMapFrame } from "./map-frame.mjs";
+import { newerPageChunk } from "./deploy-check.mjs";
 import { CONFEDERATION_CONGRESS_START, FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 import { officialOfficesForDate } from "./cabinet-offices.mjs";
 
@@ -38,7 +39,7 @@ type SheetState = "peek" | "half" | "full";
 type MapFrame = { x: number; y: number; w: number; h: number; s: number; left: number; top: number; right: number; bottom: number };
 
 const DEFAULT_FRAME: MapFrame = { x: 0, y: 0, w: FRAME_WIDTH, h: FRAME_HEIGHT, s: 1, left: 0, top: 0, right: 0, bottom: 0 };
-const PHONE_WIDTH = 640;
+const PHONE_WIDTH = 860;
 // Revalidate data files on every load so a browser never pairs a new deploy
 // with a cached roster from the previous one.
 const DATA_FETCH: RequestInit = { cache: "no-cache" };
@@ -244,6 +245,12 @@ function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
   );
 }
 
+// The chamber card already names its chamber: "House majority leader" reads
+// as "Majority leader" there.
+function leaderTitle(title: string) {
+  return title.replace(/^(?:House|Senate) (m)/, (_, initial: string) => initial.toUpperCase());
+}
+
 function governmentTermWikipediaHref(date: string, congress: number) {
   if (date < CONFEDERATION_CONGRESS_START) return "https://en.wikipedia.org/wiki/Second_Continental_Congress";
   if (date < FEDERAL_CONGRESS_START) return "https://en.wikipedia.org/wiki/Congress_of_the_Confederation";
@@ -275,8 +282,10 @@ export default function Home() {
   const [frame, setFrame] = useState<MapFrame>(DEFAULT_FRAME);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [sheet, setSheet] = useState<SheetState>("half");
+  const [isPhone, setIsPhone] = useState(false);
   const mapRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+  const chamberRef = useRef<HTMLElement>(null);
   const timelineRef = useRef<HTMLElement>(null);
   const frameRef = useRef<MapFrame>(DEFAULT_FRAME);
   const sheetDragRef = useRef<{ pointerId: number; startY: number; startHeight: number; moved: boolean } | null>(null);
@@ -402,12 +411,15 @@ export default function Home() {
     if (!rect.width || !rect.height) return;
     const panel = panelRef.current?.getBoundingClientRect();
     const timeline = timelineRef.current?.getBoundingClientRect();
+    const chamberRect = chamberRef.current?.getBoundingClientRect();
     const panelShown = Boolean(panel?.width && panel.height);
+    const phone = rect.width <= PHONE_WIDTH;
+    setIsPhone(phone);
     let left = 16;
     let top = 16;
     let right = 16;
     let bottom = 16;
-    if (rect.width <= PHONE_WIDTH) {
+    if (phone) {
       left = 8;
       right = 8;
       if (timeline) top = timeline.bottom - rect.top + 8;
@@ -415,6 +427,7 @@ export default function Home() {
     } else {
       right = 72;
       if (panel && panelShown) left = panel.right - rect.left + 24;
+      if (chamberRect?.height) top = chamberRect.bottom - rect.top + 16;
       if (timeline) bottom = rect.bottom - timeline.top + 16;
     }
     const next: MapFrame = {
@@ -431,11 +444,30 @@ export default function Home() {
   useEffect(() => {
     updateFrame();
     const observer = new ResizeObserver(updateFrame);
-    for (const element of [mapRef.current, panelRef.current, timelineRef.current]) {
+    for (const element of [mapRef.current, panelRef.current, timelineRef.current, chamberRef.current]) {
       if (element) observer.observe(element);
     }
     return () => observer.disconnect();
-  }, [panelCollapsed, updateFrame]);
+  }, [isPhone, panelCollapsed, updateFrame]);
+
+  useEffect(() => {
+    const loaded = [
+      ...performance.getEntriesByType("resource").map((entry) => entry.name),
+      ...[...document.querySelectorAll<HTMLLinkElement>("link[rel=modulepreload]")].map((link) => link.href),
+    ];
+    fetch(window.location.pathname, { cache: "no-cache" })
+      .then((response) => response.ok ? response.text() : "")
+      .then((html) => {
+        const latest = newerPageChunk(loaded, html);
+        if (!latest) return;
+        // Reload at most once per newer build in case the cache keeps lying.
+        const key = `american-atlas-reloaded:${latest}`;
+        if (sessionStorage.getItem(key)) return;
+        sessionStorage.setItem(key, "1");
+        window.location.reload();
+      })
+      .catch(() => {});
+  }, []);
 
   // On phones the panel is a bottom sheet with three resting heights. These
   // mirror the [data-sheet] heights in globals.css.
@@ -777,6 +809,7 @@ export default function Home() {
     const phone = rect.width <= PHONE_WIDTH;
     // Keep cards beside the floating panel and above the timeline.
     const minX = phone ? 8 : Math.max(8, frameRef.current.left - 16);
+    const minY = phone ? 8 : Math.max(8, frameRef.current.top - 12);
     const maxY = rect.height - (phone ? 8 : Math.max(8, frameRef.current.bottom - 8));
     const cardWidth = Math.min(scope === "delegation" ? 300 : 240, rect.width - 16);
     const preferredHeight = Math.min(scope === "delegation" ? 380 : 200, maxY - 8);
@@ -785,7 +818,7 @@ export default function Home() {
       : Math.max(minX, pointerX - cardWidth - 14);
     const y = pointerY + 14 + preferredHeight <= maxY
       ? pointerY + 14
-      : Math.max(8, pointerY - preferredHeight - 14);
+      : Math.max(minY, pointerY - preferredHeight - 14);
     pinnedTooltipRef.current = pinned;
     setTooltip((current) => {
       const keepCurrentPosition = pinned && current?.feature === mapFeature && current.scope === scope && !current.labelOnly;
@@ -1022,19 +1055,27 @@ export default function Home() {
     setIsPanning(false);
   }, [beginDrag]);
 
+  // Pinching anywhere on the atlas zooms the map, never the page: around the
+  // fingers over the map, or around the middle of the map over the panels.
+  // Plain scrolling zooms over the map and scrolls the panels elsewhere.
+  const pinchPoint = useCallback((event: { clientX: number; clientY: number; target: EventTarget | null }) => (
+    mapRef.current?.contains(event.target as Node)
+      ? mapPointForClient(event.clientX, event.clientY)
+      : { x: FRAME_WIDTH / 2, y: FRAME_HEIGHT / 2 }
+  ), [mapPointForClient]);
+
   const handleMapWheel = useCallback((event: globalThis.WheelEvent) => {
-    // Let a pinned card scroll, but never let a pinch zoom the page.
-    if (!event.ctrlKey && (event.target as Element | null)?.closest(".tooltip")) return;
-    const point = mapPointForClient(event.clientX, event.clientY);
+    const target = event.target as Element | null;
+    const overMap = Boolean(target && mapRef.current?.contains(target));
+    if (!event.ctrlKey && (!overMap || target?.closest(".tooltip"))) return;
+    const point = pinchPoint(event);
     if (!point) return;
     event.preventDefault();
     event.stopPropagation();
     zoomBy(wheelZoomFactor(event), point, true);
-  }, [mapPointForClient, zoomBy]);
+  }, [pinchPoint, zoomBy]);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
     // Safari reports trackpad pinches as gesture events rather than ctrl+wheel.
     type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
     let gestureScale = 1;
@@ -1045,22 +1086,25 @@ export default function Home() {
     const changeGesture = (event: Event) => {
       event.preventDefault();
       const gesture = event as GestureEvent;
-      const point = mapPointForClient(gesture.clientX, gesture.clientY);
-      if (point && gesture.scale) zoomBy(gesture.scale / gestureScale, point, true);
+      // iOS also sends these for touch pinches, which the pointer handlers zoom.
+      if (touchPointersRef.current.size < 2 && gesture.scale) {
+        const point = pinchPoint(gesture);
+        if (point) zoomBy(gesture.scale / gestureScale, point, true);
+      }
       gestureScale = gesture.scale || gestureScale;
     };
     const endGesture = (event: Event) => event.preventDefault();
-    map.addEventListener("wheel", handleMapWheel, { passive: false });
-    map.addEventListener("gesturestart", startGesture);
-    map.addEventListener("gesturechange", changeGesture);
-    map.addEventListener("gestureend", endGesture);
+    window.addEventListener("wheel", handleMapWheel, { passive: false });
+    window.addEventListener("gesturestart", startGesture);
+    window.addEventListener("gesturechange", changeGesture);
+    window.addEventListener("gestureend", endGesture);
     return () => {
-      map.removeEventListener("wheel", handleMapWheel);
-      map.removeEventListener("gesturestart", startGesture);
-      map.removeEventListener("gesturechange", changeGesture);
-      map.removeEventListener("gestureend", endGesture);
+      window.removeEventListener("wheel", handleMapWheel);
+      window.removeEventListener("gesturestart", startGesture);
+      window.removeEventListener("gesturechange", changeGesture);
+      window.removeEventListener("gestureend", endGesture);
     };
-  }, [handleMapWheel, mapPointForClient, zoomBy]);
+  }, [handleMapWheel, pinchPoint, zoomBy]);
 
   const handleMapKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") closeTooltip();
@@ -1173,6 +1217,102 @@ export default function Home() {
     "--free-bottom": `${frame.bottom}px`,
   } as CSSProperties;
   const timelineProgress = { "--progress": `${(toDay(date) / Math.max(1, maxDay)) * 100}%` } as CSSProperties;
+
+  const chamberCard = (
+    <section
+      className={`chamber-card${isPhone ? " in-panel" : ""}`}
+      ref={isPhone ? undefined : chamberRef}
+      aria-label={isPreconstitutional ? `${governmentLabel} state delegations` : `${chamberName} party control`}
+    >
+      <div className="chamber-head">
+        <div className="seg" role="tablist" aria-label="Chamber">
+          {isPreconstitutional ? (
+            <button type="button" role="tab" aria-selected="true">State delegations</button>
+          ) : (
+            <>
+              <button type="button" role="tab" aria-selected={chamber === "rep"} onClick={() => setChamber("rep")}>House districts</button>
+              <button type="button" role="tab" aria-selected={chamber === "sen"} onClick={() => setChamber("sen")}>Senate</button>
+            </>
+          )}
+        </div>
+        <strong className="control-label">{isPreconstitutional ? "Each state delegation held one vote" : chamberSummary.controlLabel}</strong>
+        <div className="stats">
+          {isPreconstitutional ? (
+            <>
+              <div><b className="term-seat-count">{termSeatCount}</b><span>delegates this year</span></div>
+              <div><b>{representedDelegations}</b><span>of 13 states</span></div>
+            </>
+          ) : (
+            <>
+              <div><b className="term-seat-count">{hasFederalSeatData ? <><span>{activeMembers.length}</span><span>/{chamberSummary.seatTotal}</span></> : termSeatCount}</b><span>seats filled</span></div>
+              <div><b>{hasFederalSeatData ? chamberSummary.majority : "—"}</b><span>for a majority</span></div>
+              <div><b>{hasFederalSeatData ? chamberSummary.vacancies : "—"}</b><span>vacant</span></div>
+            </>
+          )}
+        </div>
+      </div>
+      {!isPreconstitutional && (
+        <div className="control-meter" aria-label={`Majority threshold: ${chamberSummary.majority} seats`}>
+          <div className="control-meter-bar">
+            {chamberSummary.segments.map((segment) => (
+              <i
+                key={segment.label}
+                style={{ width: `${(segment.count / Math.max(1, chamberSummary.seatTotal)) * 100}%`, background: segment.color }}
+                title={`${segment.label}: ${segment.count}`}
+              />
+            ))}
+          </div>
+          <span className="majority-marker" style={{ left: `${(chamberSummary.majority / Math.max(1, chamberSummary.seatTotal)) * 100}%` }} />
+        </div>
+      )}
+      <div className="key-row">
+        <ul className="control-key">
+          {isPreconstitutional
+            ? <li><i className="delegate-swatch" />Annual delegate roster<b>{representedDelegations}</b></li>
+            : chamberSummary.segments.map((segment) => <li key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></li>)}
+          {hasConfederateGeography && <li><i className="swatch confederate-swatch" />Seceded state</li>}
+          {activeReconstructionDistricts.length > 0 && <li><i className="swatch reconstruction-swatch" />Reconstruction military district</li>}
+          {hasMixedDelegation && <li><i className="swatch mixed-delegation-swatch" />Statewide at-large seat</li>}
+          {hasTerritories && <li><i className="swatch territory-swatch" />Territory or other U.S. area</li>}
+        </ul>
+        {chamber === "rep" && (
+          <button className="switch" type="button" role="switch" aria-checked={highDetail} onClick={() => setHighDetail((enabled) => !enabled)}>
+            <span>High detail</span><i aria-hidden="true" />
+          </button>
+        )}
+      </div>
+      <div className="leadership" role="group" aria-label={isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}>
+        <div className="sec">{isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}</div>
+        <div className="leaders">
+          {isPreconstitutional ? (
+            presidingOfficer
+              ? (
+                <div className="leader">
+                  <small className="leader-title">President of Congress</small>
+                  <strong className="leader-name"><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong>
+                  <span className="leader-party">{presidingOfficer.s}</span>
+                </div>
+              )
+              : <p className="empty">No elected president of Congress is recorded for this date.</p>
+          ) : (
+            <>
+              {chamberLeadership.map(({ title, official }) => (
+                <div className="leader leadership-person" key={title}>
+                  <small className="leader-title">{leaderTitle(title)}</small>
+                  {official?.p && <i className="official-party-dot" style={{ background: colorFor(official.p) }} />}
+                  {official
+                    ? <strong className="leader-name"><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
+                    : <strong className="leader-name leadership-vacant"><em>Vacant</em></strong>}
+                  {official && (official.p || official.s) && <span className="leader-party">{official.p}{official.p && official.s ? " – " : ""}{official.s}</span>}
+                </div>
+              ))}
+              {!chamberLeadership.length && <p className="empty">No dated chamber leadership record for this date.</p>}
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 
   return (
     <main className={`atlas${panelCollapsed ? " panel-collapsed" : ""}${tooltip?.pinned ? " has-pinned-card" : ""}`} style={atlasStyle}>
@@ -1308,6 +1448,8 @@ export default function Home() {
         </button>
       )}
 
+      {!isPhone && chamberCard}
+
       <aside id="panel" ref={panelRef} data-sheet={sheet} hidden={panelCollapsed} aria-label={`Government on ${longDate(date)}`}>
         <button
           className="grip"
@@ -1325,64 +1467,10 @@ export default function Home() {
             <button className="pbtn collapse-panel" type="button" onClick={() => setPanelCollapsed(true)} aria-label="Hide panel"><Icon name="sidebar" /></button>
           </div>
           <p className="lede">The U.S. government on any day since July 4, 1776.</p>
-          <div className="seg wide" role="tablist" aria-label="Chamber">
-            {isPreconstitutional ? (
-              <button type="button" role="tab" aria-selected="true">State delegations</button>
-            ) : (
-              <>
-                <button type="button" role="tab" aria-selected={chamber === "rep"} onClick={() => setChamber("rep")}>House districts</button>
-                <button type="button" role="tab" aria-selected={chamber === "sen"} onClick={() => setChamber("sen")}>Senate</button>
-              </>
-            )}
-          </div>
         </div>
 
         <div className="panel-body">
-          <section className="control-board" aria-label={isPreconstitutional ? `${governmentLabel} state delegations` : `${chamberName} party control`}>
-            <strong className="control-label">{isPreconstitutional ? "Each state delegation held one vote" : chamberSummary.controlLabel}</strong>
-            <div className="stats">
-              {isPreconstitutional ? (
-                <>
-                  <div><b className="term-seat-count">{termSeatCount}</b><span>delegates this year</span></div>
-                  <div><b>{representedDelegations}</b><span>of 13 states</span></div>
-                </>
-              ) : (
-                <>
-                  <div><b className="term-seat-count">{hasFederalSeatData ? <><span>{activeMembers.length}</span><span>/{chamberSummary.seatTotal}</span></> : termSeatCount}</b><span>seats filled</span></div>
-                  <div><b>{hasFederalSeatData ? chamberSummary.majority : "—"}</b><span>for a majority</span></div>
-                  <div><b>{hasFederalSeatData ? chamberSummary.vacancies : "—"}</b><span>vacant</span></div>
-                </>
-              )}
-            </div>
-            {!isPreconstitutional && (
-              <div className="control-meter" aria-label={`Majority threshold: ${chamberSummary.majority} seats`}>
-                <div className="control-meter-bar">
-                  {chamberSummary.segments.map((segment) => (
-                    <i
-                      key={segment.label}
-                      style={{ width: `${(segment.count / Math.max(1, chamberSummary.seatTotal)) * 100}%`, background: segment.color }}
-                      title={`${segment.label}: ${segment.count}`}
-                    />
-                  ))}
-                </div>
-                <span className="majority-marker" style={{ left: `${(chamberSummary.majority / Math.max(1, chamberSummary.seatTotal)) * 100}%` }} />
-              </div>
-            )}
-            <ul className="control-key">
-              {isPreconstitutional
-                ? <li><i className="delegate-swatch" />Annual delegate roster<b>{representedDelegations}</b></li>
-                : chamberSummary.segments.map((segment) => <li key={segment.label}><i style={{ background: segment.color }} />{segment.label}<b>{segment.count}</b></li>)}
-              {hasConfederateGeography && <li><i className="swatch confederate-swatch" />Seceded state</li>}
-              {activeReconstructionDistricts.length > 0 && <li><i className="swatch reconstruction-swatch" />Reconstruction military district</li>}
-              {hasMixedDelegation && <li><i className="swatch mixed-delegation-swatch" />Statewide at-large seat</li>}
-              {hasTerritories && <li><i className="swatch territory-swatch" />Territory or other U.S. area</li>}
-            </ul>
-            {chamber === "rep" && (
-              <button className="switch" type="button" role="switch" aria-checked={highDetail} onClick={() => setHighDetail((enabled) => !enabled)}>
-                <span>High detail boundaries</span><i aria-hidden="true" />
-              </button>
-            )}
-          </section>
+          {isPhone && chamberCard}
 
           {!isPreconstitutional && OFFICIAL_GROUPS.map((group) => {
             const officeDefinitions = group === "Supreme Court" ? null : officialOfficesForDate(group, date);
@@ -1429,31 +1517,7 @@ export default function Home() {
               </details>
             );
           })}
-
-          <section className="leadership" aria-label={isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}>
-            <div className="sec">{isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}</div>
-            {isPreconstitutional ? (
-              presidingOfficer
-                ? <div className="official-holder"><span className="official-name"><strong><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong><small>President of Congress</small></span><span className="official-party">{presidingOfficer.s}</span></div>
-                : <p className="empty">No elected president of Congress is recorded for this date.</p>
-            ) : (
-              <>
-                {chamberLeadership.map(({ title, official }) => (
-                  <div className="official-holder leadership-person" key={title}>
-                    {official?.p && <i className="official-party-dot" style={{ background: colorFor(official.p) }} />}
-                    <span className="official-name">
-                      {official
-                        ? <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
-                        : <strong className="leadership-vacant"><em>Vacant</em></strong>}
-                      <small>{title}</small>
-                    </span>
-                    {official && (official.p || official.s) && <span className="official-party">{official.p}{official.p && official.s ? " – " : ""}{official.s}</span>}
-                  </div>
-                ))}
-                {!chamberLeadership.length && <p className="empty">No dated chamber leadership record for this date.</p>}
-              </>
-            )}
-          </section>
+          {isPreconstitutional && <p className="empty panel-note">The executive branch and Supreme Court begin under the Constitution in 1789. Until then the Continental Congress and the Congress of the Confederation governed.</p>}
 
           <p className="rail-note">{isPreconstitutional ? "Delegate service is shown at annual resolution because surviving rosters generally record participation by year, not a continuous daily tenure. Each state cast one vote under the Articles." : "Created offices remain visible while vacant. Additional offices appear only during periods when they held Cabinet rank."}</p>
           <p className="rail-note hint">{isPreconstitutional ? "Hover for delegates · click to pin · ←/→ scrub dates" : chamber === "rep" ? "Hover for members · click to pin · double-click for state delegation · ←/→ scrub dates" : "Hover for senators · click to pin · ←/→ scrub dates"}</p>
