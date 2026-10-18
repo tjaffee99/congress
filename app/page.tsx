@@ -9,7 +9,7 @@ import { isConfederateState } from "./confederate-state.mjs";
 import { houseBoundaryBelongsToPlan, houseDelegationRows, houseMembersForDistrict, houseStatewideAtLargeMembers, houseStatesNeedingAtLargeFallback } from "./house-members.mjs";
 import { reconstructionDistrictForState } from "./reconstruction-district.mjs";
 import { isEditableKeyboardTarget, scrubStepForDuration } from "./date-scrub.mjs";
-import { clampZoom, isLikelyMouseWheel } from "./map-input.mjs";
+import { clampZoom, wheelZoomFactor } from "./map-input.mjs";
 import { FRAME_HEIGHT, FRAME_WIDTH, fitMapFrame } from "./map-frame.mjs";
 import { CONFEDERATION_CONGRESS_START, FEDERAL_CONGRESS_START, PRECONSTITUTIONAL_STATE_NAMES, preconstitutionalCongressLabel, presidentOfCongress, vermontPolityForDate } from "./preconstitutional.mjs";
 import { officialOfficesForDate } from "./cabinet-offices.mjs";
@@ -39,6 +39,9 @@ type MapFrame = { x: number; y: number; w: number; h: number; s: number; left: n
 
 const DEFAULT_FRAME: MapFrame = { x: 0, y: 0, w: FRAME_WIDTH, h: FRAME_HEIGHT, s: 1, left: 0, top: 0, right: 0, bottom: 0 };
 const PHONE_WIDTH = 640;
+// Revalidate data files on every load so a browser never pairs a new deploy
+// with a cached roster from the previous one.
+const DATA_FETCH: RequestInit = { cache: "no-cache" };
 
 const MIN_DATE = "1776-07-04";
 const DAY = 86_400_000;
@@ -315,9 +318,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    fetch("/data/members.json").then((response) => response.json()).then((memberData: Member[]) => setFederalMembers(memberData));
-    fetch("/data/officials.json").then((response) => response.json()).then((officialData: Official[]) => setOfficials(officialData));
-    fetch("/data/historical-polities.json").then((response) => response.json()).then((topology: Topology) => {
+    fetch("/data/members.json", DATA_FETCH).then((response) => response.json()).then((memberData: Member[]) => setFederalMembers(memberData));
+    fetch("/data/officials.json", DATA_FETCH).then((response) => response.json()).then((officialData: Official[]) => setOfficials(officialData));
+    fetch("/data/historical-polities.json", DATA_FETCH).then((response) => response.json()).then((topology: Topology) => {
       const object = Object.values(topology.objects)[0] as GeometryCollection<MapProperties>;
       const collection = feature(topology, object) as FeatureCollection<Geometry, MapProperties>;
       setHistoricalPolities(collection.features);
@@ -343,7 +346,7 @@ export default function Home() {
   useEffect(() => {
     if (date >= FEDERAL_CONGRESS_START || preconstitutionalMembers.length || preconstitutionalRequestRef.current) return;
     preconstitutionalRequestRef.current = true;
-    fetch("/data/preconstitutional.json")
+    fetch("/data/preconstitutional.json", DATA_FETCH)
       .then((response) => response.json())
       .then((memberData: Member[]) => setPreconstitutionalMembers(memberData))
       .finally(() => { preconstitutionalRequestRef.current = false; });
@@ -354,7 +357,7 @@ export default function Home() {
     let cancelled = false;
     queueMicrotask(() => { if (!cancelled) setMapLoading(true); });
     const detailDirectory = highDetail ? "districts-high" : "districts";
-    fetch(`/data/${detailDirectory}/${String(congress).padStart(3, "0")}.json`)
+    fetch(`/data/${detailDirectory}/${String(congress).padStart(3, "0")}.json`, DATA_FETCH)
       .then((response) => response.json())
       .then((topology: Topology) => {
         if (cancelled) return;
@@ -888,13 +891,25 @@ export default function Home() {
     });
   }, []);
 
-  const zoomBy = useCallback((factor: number, point = { x: 500, y: 310 }) => {
+  const zoomCommitTimerRef = useRef<number | null>(null);
+  // Continuous gestures (wheel, trackpad pinch) move the map every event but
+  // only commit the zoom to React state once they pause.
+  const zoomBy = useCallback((factor: number, point = { x: 500, y: 310 }, continuous = false) => {
     const current = zoomRef.current;
     const nextK = clampZoom(current.k * factor);
     const ratio = nextK / current.k;
     const next = { k: nextK, x: point.x - (point.x - current.x) * ratio, y: point.y - (point.y - current.y) * ratio };
     applyZoom(next);
-    setZoom(next);
+    if (zoomCommitTimerRef.current !== null) window.clearTimeout(zoomCommitTimerRef.current);
+    zoomCommitTimerRef.current = null;
+    if (!continuous) {
+      setZoom(next);
+      return;
+    }
+    zoomCommitTimerRef.current = window.setTimeout(() => {
+      zoomCommitTimerRef.current = null;
+      setZoom(zoomRef.current);
+    }, 150);
   }, [applyZoom]);
 
   const resetZoom = useCallback(() => {
@@ -1008,21 +1023,44 @@ export default function Home() {
   }, [beginDrag]);
 
   const handleMapWheel = useCallback((event: globalThis.WheelEvent) => {
-    if ((event.target as Element | null)?.closest(".tooltip")) return;
-    if (!isLikelyMouseWheel(event)) return;
+    // Let a pinned card scroll, but never let a pinch zoom the page.
+    if (!event.ctrlKey && (event.target as Element | null)?.closest(".tooltip")) return;
     const point = mapPointForClient(event.clientX, event.clientY);
     if (!point) return;
     event.preventDefault();
     event.stopPropagation();
-    zoomBy(event.deltaY < 0 ? 1.25 : 1 / 1.25, point);
+    zoomBy(wheelZoomFactor(event), point, true);
   }, [mapPointForClient, zoomBy]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
+    // Safari reports trackpad pinches as gesture events rather than ctrl+wheel.
+    type GestureEvent = Event & { scale: number; clientX: number; clientY: number };
+    let gestureScale = 1;
+    const startGesture = (event: Event) => {
+      event.preventDefault();
+      gestureScale = (event as GestureEvent).scale || 1;
+    };
+    const changeGesture = (event: Event) => {
+      event.preventDefault();
+      const gesture = event as GestureEvent;
+      const point = mapPointForClient(gesture.clientX, gesture.clientY);
+      if (point && gesture.scale) zoomBy(gesture.scale / gestureScale, point, true);
+      gestureScale = gesture.scale || gestureScale;
+    };
+    const endGesture = (event: Event) => event.preventDefault();
     map.addEventListener("wheel", handleMapWheel, { passive: false });
-    return () => map.removeEventListener("wheel", handleMapWheel);
-  }, [handleMapWheel]);
+    map.addEventListener("gesturestart", startGesture);
+    map.addEventListener("gesturechange", changeGesture);
+    map.addEventListener("gestureend", endGesture);
+    return () => {
+      map.removeEventListener("wheel", handleMapWheel);
+      map.removeEventListener("gesturestart", startGesture);
+      map.removeEventListener("gesturechange", changeGesture);
+      map.removeEventListener("gestureend", endGesture);
+    };
+  }, [handleMapWheel, mapPointForClient, zoomBy]);
 
   const handleMapKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === "Escape") closeTooltip();
@@ -1145,6 +1183,10 @@ export default function Home() {
         tabIndex={0}
         aria-label="Interactive map. Click a state or district to pin its details. In the House view, double-click a district to open its entire state delegation. Drag to pan; use plus and minus to zoom; use left and right arrows to scrub dates; use shift plus left or right and the up or down arrows to pan; press zero to reset."
         onKeyDown={handleMapKeyDown}
+        onMouseMove={(event) => {
+          if (pinnedTooltipRef.current || dragRef.current) return;
+          if (!(event.target as Element).closest(".map-paths path, .historical-state-overlays path, .geography-hover")) setTooltip(null);
+        }}
         onMouseLeave={() => { if (!pinnedTooltipRef.current) setTooltip(null); }}
         onPointerDown={handleMapPointerDown}
         onPointerMove={handleMapPointerMove}
@@ -1342,31 +1384,6 @@ export default function Home() {
             )}
           </section>
 
-          <section className="leadership" aria-label={isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}>
-            <div className="sec">{isPreconstitutional ? "Presiding officer" : "Leadership"}</div>
-            {isPreconstitutional ? (
-              presidingOfficer
-                ? <div className="official-holder"><span className="official-name"><strong><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong><small>President of Congress</small></span><span className="official-party">{presidingOfficer.s}</span></div>
-                : <p className="empty">No elected president of Congress is recorded for this date.</p>
-            ) : (
-              <>
-                {chamberLeadership.map(({ title, official }) => (
-                  <div className="official-holder leadership-person" key={title}>
-                    {official?.p && <i className="official-party-dot" style={{ background: colorFor(official.p) }} />}
-                    <span className="official-name">
-                      {official
-                        ? <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
-                        : <strong className="leadership-vacant"><em>Vacant</em></strong>}
-                      <small>{title}</small>
-                    </span>
-                    {official && (official.p || official.s) && <span className="official-party">{official.p}{official.p && official.s ? " – " : ""}{official.s}</span>}
-                  </div>
-                ))}
-                {!chamberLeadership.length && <p className="empty">No dated chamber leadership record for this date.</p>}
-              </>
-            )}
-          </section>
-
           {!isPreconstitutional && OFFICIAL_GROUPS.map((group) => {
             const officeDefinitions = group === "Supreme Court" ? null : officialOfficesForDate(group, date);
             const visibleTitles = officeDefinitions ? new Set(officeDefinitions.map((office) => office.title)) : null;
@@ -1412,6 +1429,31 @@ export default function Home() {
               </details>
             );
           })}
+
+          <section className="leadership" aria-label={isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}>
+            <div className="sec">{isPreconstitutional ? "Presiding officer" : `${chamberName} leadership`}</div>
+            {isPreconstitutional ? (
+              presidingOfficer
+                ? <div className="official-holder"><span className="official-name"><strong><a href={presidingOfficer.w} target="_blank" rel="noreferrer">{presidingOfficer.n}</a></strong><small>President of Congress</small></span><span className="official-party">{presidingOfficer.s}</span></div>
+                : <p className="empty">No elected president of Congress is recorded for this date.</p>
+            ) : (
+              <>
+                {chamberLeadership.map(({ title, official }) => (
+                  <div className="official-holder leadership-person" key={title}>
+                    {official?.p && <i className="official-party-dot" style={{ background: colorFor(official.p) }} />}
+                    <span className="official-name">
+                      {official
+                        ? <strong><a href={wikipediaHref(official)} target="_blank" rel="noreferrer">{official.n}</a></strong>
+                        : <strong className="leadership-vacant"><em>Vacant</em></strong>}
+                      <small>{title}</small>
+                    </span>
+                    {official && (official.p || official.s) && <span className="official-party">{official.p}{official.p && official.s ? " – " : ""}{official.s}</span>}
+                  </div>
+                ))}
+                {!chamberLeadership.length && <p className="empty">No dated chamber leadership record for this date.</p>}
+              </>
+            )}
+          </section>
 
           <p className="rail-note">{isPreconstitutional ? "Delegate service is shown at annual resolution because surviving rosters generally record participation by year, not a continuous daily tenure. Each state cast one vote under the Articles." : "Created offices remain visible while vacant. Additional offices appear only during periods when they held Cabinet rank."}</p>
           <p className="rail-note hint">{isPreconstitutional ? "Hover for delegates · click to pin · ←/→ scrub dates" : chamber === "rep" ? "Hover for members · click to pin · double-click for state delegation · ←/→ scrub dates" : "Hover for senators · click to pin · ←/→ scrub dates"}</p>
