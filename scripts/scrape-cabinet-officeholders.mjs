@@ -148,6 +148,12 @@ async function scrapeOffice([title, page, order, created, discontinued]) {
     const sonderling = unique.find((holder) => holder.a === "2026-04-20");
     if (sonderling) sonderling.x = true;
   }
+  // The Attorney General table numbers Todd Blanche from the start of his
+  // acting service and records that period only in a footnote.
+  if (title === "Attorney General") {
+    const blanche = unique.find((holder) => holder.a === "2026-04-02");
+    if (blanche) blanche.x = true;
+  }
   if (title === "Secretary of Transportation") {
     const duffy = unique.find((holder) => holder.a === "2025-01-28");
     if (duffy) Object.assign(duffy, {

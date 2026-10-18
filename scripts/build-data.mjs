@@ -153,23 +153,9 @@ const INVALID_TERMS = new Set([
   "G000171:rep:CA:1849-12-03:1851-03-03",
 ]);
 
-const MANUAL_TERMS = [
-  {
-    id: "SC-SEN-2026-DG",
-    n: "Darline Graham",
-    t: "sen",
-    s: "SC",
-    d: null,
-    p: "Republican",
-    c: null,
-    w: null,
-    a: "2026-07-13",
-    z: "2027-01-03",
-    sourceStart: "2026-07-13",
-    sourceEnd: "2027-01-02",
-    overridden: true,
-  },
-];
+// Seats the upstream roster has not recorded yet. Remove each entry once
+// upstream carries the term, or the seat is double-counted.
+const MANUAL_TERMS = [];
 
 function historicalCongressStart(end) {
   const match = end.match(/^(\d{4})-03-03$/);

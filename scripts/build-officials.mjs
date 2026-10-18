@@ -752,10 +752,19 @@ function mergeSameOfficeholder(rows) {
 
 const currentOfficeholderCorrections = [
   {
+    title: "Attorney General",
+    cutoff: "2026-04-02",
+    replacements: [
+      { id: "CURRENT-AG-BLANCHE-ACTING", n: "Todd Blanche", t: "Attorney General", g: "Cabinet", o: 13, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Todd_Blanche", a: "2026-04-02", z: "2026-08-10" },
+      { id: "CURRENT-AG-BLANCHE", n: "Todd Blanche", t: "Attorney General", g: "Cabinet", o: 13, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Todd_Blanche", a: "2026-08-10", z: null },
+    ],
+  },
+  {
     title: "Secretary of Labor",
     cutoff: "2026-04-20",
     replacements: [
-      { id: "CURRENT-LABOR-SONDERLING", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-04-20", z: null },
+      { id: "CURRENT-LABOR-SONDERLING", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-04-20", z: "2026-10-02" },
+      { id: "CURRENT-LABOR-SONDERLING-CONFIRMED", n: "Keith Sonderling", t: "Secretary of Labor", g: "Cabinet", o: 17, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Keith_Sonderling", a: "2026-10-02", z: null },
     ],
   },
   {
@@ -770,7 +779,23 @@ const currentOfficeholderCorrections = [
     title: "Director of National Intelligence",
     cutoff: "2026-06-19",
     replacements: [
-      { id: "CURRENT-DNI-PULTE", n: "William J. Pulte", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Bill_Pulte", a: "2026-06-19", z: null },
+      { id: "CURRENT-DNI-PULTE", n: "Bill Pulte", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Bill_Pulte", a: "2026-06-19", z: "2026-08-03" },
+      { id: "CURRENT-DNI-CLAYTON", n: "Jay Clayton", t: "Director of National Intelligence", g: "Cabinet-level", o: 31, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Jay_Clayton", a: "2026-08-03", z: null },
+    ],
+  },
+  {
+    title: "National Security Advisor",
+    cutoff: "2025-05-01",
+    replacements: [
+      { id: "CURRENT-NSA-RUBIO-ACTING", n: "Marco Rubio", t: "National Security Advisor", g: "Cabinet-level", o: 25.3, h: null, p: null, s: null, x: true, w: "https://en.wikipedia.org/wiki/Marco_Rubio", a: "2025-05-01", z: "2026-09-22" },
+      { id: "CURRENT-NSA-RUBIO", n: "Marco Rubio", t: "National Security Advisor", g: "Cabinet-level", o: 25.3, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Marco_Rubio", a: "2026-09-22", z: null },
+    ],
+  },
+  {
+    title: "White House Counsel",
+    cutoff: "2026-09-01",
+    replacements: [
+      { id: "CURRENT-WHC-SCHARF", n: "Will Scharf", t: "White House Counsel", g: "Cabinet-level", o: 25.2, h: null, p: null, s: null, x: false, w: "https://en.wikipedia.org/wiki/Will_Scharf", a: "2026-09-01", z: null },
     ],
   },
 ];

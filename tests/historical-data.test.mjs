@@ -255,10 +255,30 @@ test("current House totals exclude six non-voting territorial delegates", () => 
 });
 
 test("a Senate vacancy remains visible until an appointed successor takes office", () => {
-  const beforeAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-12" && member.z > "2026-07-12");
-  const afterAppointment = members.filter((member) => member.t === "sen" && member.s === "SC" && member.a <= "2026-07-13" && member.z > "2026-07-13");
-  assert.equal(beforeAppointment.length, 1);
-  assert.deepEqual(afterAppointment.map((member) => member.n).sort(), ["Darline Graham", "Tim Scott"]);
+  // Lindsey Graham died July 11, 2026; Darline Graham was appointed July 13
+  // and sworn in July 14.
+  assert.deepEqual(activeSenate("2026-07-10", "SC").map((member) => member.n).sort(), ["Lindsey O. Graham", "Tim Scott"]);
+  assert.deepEqual(activeSenate("2026-07-13", "SC").map((member) => member.n), ["Tim Scott"]);
+  assert.deepEqual(activeSenate("2026-07-14", "SC").map((member) => member.n).sort(), ["Darline Graham Nordone", "Tim Scott"]);
+  assert.equal(activeVotingMembers("2026-07-13", "sen").filter((member) => member.p === "Republican").length, 52);
+  assert.equal(activeVotingMembers("2026-07-14", "sen").filter((member) => member.p === "Republican").length, 53);
+});
+
+test("autumn 2026 House special-election winners fill their vacancies", () => {
+  const seat = (date, state, district) => activeHouse(date).filter((member) => member.s === state && member.d === district).map((member) => member.n);
+  assert.deepEqual(seat("2026-08-31", "GA", 13), []);
+  assert.deepEqual(seat("2026-09-01", "GA", 13), ["Everton Blair Jr."]);
+  assert.deepEqual(seat("2026-09-01", "CA", 14), []);
+  assert.deepEqual(seat("2026-09-02", "CA", 14), ["Aisha Wahab"]);
+  // TX-23 and FL-20 stay vacant for the rest of the 119th Congress.
+  assert.deepEqual(seat("2026-10-18", "TX", 23), []);
+  assert.deepEqual(seat("2026-10-18", "FL", 20), []);
+  const voting = activeVotingMembers("2026-10-18", "rep");
+  assert.equal(voting.length, 433);
+  assert.deepEqual(
+    Object.fromEntries([...Map.groupBy(voting, (member) => member.p)].map(([party, rows]) => [party, rows.length])),
+    { Republican: 218, Democrat: 214, Independent: 1 },
+  );
 });
 
 test("regular Senate terms begin on March 4 rather than the delayed session opening", () => {
@@ -303,10 +323,31 @@ test("current Cabinet records distinguish acting and confirmed officeholders", (
   const intelligence = current.find((official) => official.t === "Director of National Intelligence");
   assert.deepEqual([labor?.n, labor?.x], ["Keith Sonderling", true]);
   assert.deepEqual([transportation?.n, transportation?.x], ["Sean Duffy", false]);
-  assert.deepEqual([intelligence?.n, intelligence?.x], ["William J. Pulte", true]);
+  assert.deepEqual([intelligence?.n, intelligence?.x], ["Bill Pulte", true]);
 
   const transition = activeCabinet("2025-01-24").find((official) => official.t === "Secretary of Transportation");
   assert.deepEqual([transition?.n, transition?.x, transition?.z], ["Judith Kaleta", true, "2025-01-28"]);
+});
+
+test("Cabinet nominees confirmed after July 2026 stop being shown as acting", () => {
+  const holder = (date, title) => {
+    const rows = activeCabinet(date).filter((official) => official.t === title);
+    assert.equal(rows.length, 1, `${title} on ${date}`);
+    return [rows[0].n, rows[0].x];
+  };
+  assert.deepEqual(holder("2026-08-09", "Attorney General"), ["Todd Blanche", true]);
+  assert.deepEqual(holder("2026-08-10", "Attorney General"), ["Todd Blanche", false]);
+  assert.deepEqual(holder("2026-08-02", "Director of National Intelligence"), ["Bill Pulte", true]);
+  assert.deepEqual(holder("2026-08-03", "Director of National Intelligence"), ["Jay Clayton", false]);
+  assert.deepEqual(holder("2026-10-01", "Secretary of Labor"), ["Keith Sonderling", true]);
+  assert.deepEqual(holder("2026-10-02", "Secretary of Labor"), ["Keith Sonderling", false]);
+  assert.deepEqual(activeCabinet("2026-10-18").filter((official) => official.x).map((official) => official.t), []);
+
+  const advisor = (date, title) => activeOfficials(date).filter((official) => official.t === title).map((official) => [official.n, official.x]);
+  assert.deepEqual(advisor("2026-09-21", "National Security Advisor"), [["Marco Rubio", true]]);
+  assert.deepEqual(advisor("2026-09-22", "National Security Advisor"), [["Marco Rubio", false]]);
+  assert.deepEqual(advisor("2026-08-31", "White House Counsel"), [["David Warrington", false]]);
+  assert.deepEqual(advisor("2026-09-01", "White House Counsel"), [["Will Scharf", false]]);
 });
 
 test("Cabinet roster includes confirmed and acting Reagan officials on November 14, 1983", () => {
